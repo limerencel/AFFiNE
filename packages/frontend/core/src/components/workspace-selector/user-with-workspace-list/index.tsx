@@ -1,20 +1,15 @@
-import { Divider } from '@affine/component/ui/divider';
+import { ScrollableContainer } from '@affine/component';
 import { MenuItem } from '@affine/component/ui/menu';
 import { AuthService } from '@affine/core/modules/cloud';
 import { GlobalDialogService } from '@affine/core/modules/dialogs';
+import { FeatureFlagService } from '@affine/core/modules/feature-flag';
+import { type WorkspaceMetadata } from '@affine/core/modules/workspace';
 import { useI18n } from '@affine/i18n';
 import { track } from '@affine/track';
 import { Logo1Icon } from '@blocksuite/icons/rc';
-import {
-  FeatureFlagService,
-  useLiveData,
-  useService,
-  type WorkspaceMetadata,
-  WorkspacesService,
-} from '@toeverything/infra';
+import { useLiveData, useService } from '@toeverything/infra';
 import { useCallback } from 'react';
 
-import { AddServer } from './add-server';
 import { AddWorkspace } from './add-workspace';
 import * as styles from './index.css';
 import { AFFiNEWorkspaceList } from './workspace-list';
@@ -60,15 +55,13 @@ interface UserWithWorkspaceListProps {
     metadata: WorkspaceMetadata;
     defaultDocId?: string;
   }) => void;
-  showSettingsButton?: boolean;
   showEnableCloudButton?: boolean;
 }
 
-const UserWithWorkspaceListInner = ({
+export const UserWithWorkspaceList = ({
   onEventEnd,
   onClickWorkspace,
   onCreatedWorkspace,
-  showSettingsButton,
   showEnableCloudButton,
 }: UserWithWorkspaceListProps) => {
   const globalDialogService = useService(GlobalDialogService);
@@ -116,31 +109,26 @@ const UserWithWorkspaceListInner = ({
     onEventEnd?.();
   }, [globalDialogService, onCreatedWorkspace, onEventEnd]);
 
-  const onAddServer = useCallback(() => {
-    globalDialogService.open('sign-in', { step: 'addSelfhosted' });
-  }, [globalDialogService]);
-
-  const workspaceManager = useService(WorkspacesService);
-  const workspaces = useLiveData(workspaceManager.list.workspaces$);
-
   return (
-    <div className={styles.workspaceListWrapper}>
-      <AFFiNEWorkspaceList
-        onEventEnd={onEventEnd}
-        onClickWorkspace={onClickWorkspace}
-        showEnableCloudButton={showEnableCloudButton}
-        showSettingsButton={showSettingsButton}
-      />
-      {workspaces.length > 0 ? <Divider size="thinner" /> : null}
-      <AddWorkspace
-        onAddWorkspace={onAddWorkspace}
-        onNewWorkspace={onNewWorkspace}
-      />
-      <AddServer onAddServer={onAddServer} />
-    </div>
+    <>
+      <ScrollableContainer
+        className={styles.workspaceScrollArea}
+        viewPortClassName={styles.workspaceScrollAreaViewport}
+        scrollBarClassName={styles.scrollbar}
+        scrollThumbClassName={styles.scrollbarThumb}
+      >
+        <AFFiNEWorkspaceList
+          onEventEnd={onEventEnd}
+          onClickWorkspace={onClickWorkspace}
+          showEnableCloudButton={showEnableCloudButton}
+        />
+      </ScrollableContainer>
+      <div className={styles.workspaceFooter}>
+        <AddWorkspace
+          onAddWorkspace={onAddWorkspace}
+          onNewWorkspace={onNewWorkspace}
+        />
+      </div>
+    </>
   );
-};
-
-export const UserWithWorkspaceList = (props: UserWithWorkspaceListProps) => {
-  return <UserWithWorkspaceListInner {...props} />;
 };

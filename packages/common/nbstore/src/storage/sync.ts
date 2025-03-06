@@ -1,12 +1,28 @@
+import type { Connection } from '../connection';
 import type { DocClock, DocClocks } from './doc';
-import { Storage, type StorageOptions } from './storage';
+import { type Storage } from './storage';
 
-export interface SyncStorageOptions extends StorageOptions {}
+export interface SyncStorage extends Storage {
+  readonly storageType: 'sync';
 
-export abstract class SyncStorage<
-  Opts extends SyncStorageOptions = SyncStorageOptions,
-> extends Storage<Opts> {
-  override readonly storageType = 'sync';
+  getPeerRemoteClock(peer: string, docId: string): Promise<DocClock | null>;
+  getPeerRemoteClocks(peer: string): Promise<DocClocks>;
+  setPeerRemoteClock(peer: string, clock: DocClock): Promise<void>;
+  getPeerPulledRemoteClock(
+    peer: string,
+    docId: string
+  ): Promise<DocClock | null>;
+  getPeerPulledRemoteClocks(peer: string): Promise<DocClocks>;
+  setPeerPulledRemoteClock(peer: string, clock: DocClock): Promise<void>;
+  getPeerPushedClock(peer: string, docId: string): Promise<DocClock | null>;
+  getPeerPushedClocks(peer: string): Promise<DocClocks>;
+  setPeerPushedClock(peer: string, clock: DocClock): Promise<void>;
+  clearClocks(): Promise<void>;
+}
+
+export abstract class SyncStorageBase implements SyncStorage {
+  readonly storageType = 'sync';
+  abstract readonly connection: Connection;
 
   abstract getPeerRemoteClock(
     peer: string,

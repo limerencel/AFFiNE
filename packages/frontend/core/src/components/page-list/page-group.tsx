@@ -1,9 +1,9 @@
+import { shallowEqual } from '@affine/component';
 import { DocDisplayMetaService } from '@affine/core/modules/doc-display-meta';
 import type { Tag } from '@affine/env/filter';
 import { useI18n } from '@affine/i18n';
-import { assertExists } from '@blocksuite/affine/global/utils';
-import type { DocCollection, DocMeta } from '@blocksuite/affine/store';
-import { ToggleCollapseIcon, ViewLayersIcon } from '@blocksuite/icons/rc';
+import type { DocMeta, Workspace } from '@blocksuite/affine/store';
+import { ToggleRightIcon, ViewLayersIcon } from '@blocksuite/icons/rc';
 import * as Collapsible from '@radix-ui/react-collapsible';
 import { useLiveData, useService } from '@toeverything/infra';
 import clsx from 'clsx';
@@ -34,13 +34,10 @@ import type {
   TagListItemProps,
   TagMeta,
 } from './types';
-import { shallowEqual } from './utils';
 
-export const ItemGroupHeader = <T extends ListItem>({
-  id,
-  items,
-  label,
-}: ItemGroupProps<T>) => {
+export const ItemGroupHeader = memo(function ItemGroupHeader<
+  T extends ListItem,
+>({ id, items, label }: ItemGroupProps<T>) {
   const [collapseState, setCollapseState] = useAtom(groupCollapseStateAtom);
   const collapsed = collapseState[id];
   const onExpandedClicked: MouseEventHandler = useCallback(
@@ -92,7 +89,7 @@ export const ItemGroupHeader = <T extends ListItem>({
         data-testid="page-list-group-header-collapsed-button"
         className={styles.collapsedIconContainer}
       >
-        <ToggleCollapseIcon
+        <ToggleRightIcon
           className={styles.collapsedIcon}
           data-collapsed={!!collapsed}
         />
@@ -113,7 +110,7 @@ export const ItemGroupHeader = <T extends ListItem>({
       </button>
     </div>
   ) : null;
-};
+});
 
 export const ItemGroup = <T extends ListItem>({
   id,
@@ -158,7 +155,7 @@ export const ItemGroup = <T extends ListItem>({
             data-testid="page-list-group-header-collapsed-button"
             className={styles.collapsedIconContainer}
           >
-            <ToggleCollapseIcon
+            <ToggleRightIcon
               className={styles.collapsedIcon}
               data-collapsed={collapsed !== false}
             />
@@ -218,7 +215,9 @@ const listsPropsAtom = selectAtom(
   shallowEqual
 );
 
-export const PageListItemRenderer = (item: ListItem) => {
+export const PageListItemRenderer = memo(function PageListItemRenderer(
+  item: ListItem
+) {
   const props = useAtomValue(listsPropsAtom);
   const { selectionActive } = useAtomValue(selectionStateAtom);
   const groups = useAtomValue(groupsAtom);
@@ -238,7 +237,7 @@ export const PageListItemRenderer = (item: ListItem) => {
       )}
     />
   );
-};
+});
 
 export const CollectionListItemRenderer = memo((item: ListItem) => {
   const props = useAtomValue(listsPropsAtom);
@@ -256,7 +255,9 @@ export const CollectionListItemRenderer = memo((item: ListItem) => {
 
 CollectionListItemRenderer.displayName = 'CollectionListItemRenderer';
 
-export const TagListItemRenderer = (item: ListItem) => {
+export const TagListItemRenderer = memo(function TagListItemRenderer(
+  item: ListItem
+) {
   const props = useAtomValue(listsPropsAtom);
   const { selectionActive } = useAtomValue(selectionStateAtom);
   const tag = item as TagMeta;
@@ -268,11 +269,11 @@ export const TagListItemRenderer = (item: ListItem) => {
       })}
     />
   );
-};
+});
 
 function tagIdToTagOption(
   tagId: string,
-  docCollection: DocCollection
+  docCollection: Workspace
 ): Tag | undefined {
   return docCollection.meta.properties.tags?.options.find(
     opt => opt.id === tagId
@@ -299,7 +300,9 @@ function pageMetaToListItemProp(
 ): PageListItemProps {
   const toggleSelection = props.onSelectedIdsChange
     ? () => {
-        assertExists(props.selectedIds);
+        if (!props.selectedIds) {
+          throw new Error('selectedIds is not found');
+        }
         const prevSelected = props.selectedIds.includes(item.id);
         const shouldAdd = !prevSelected;
         const shouldRemove = prevSelected;
@@ -343,7 +346,9 @@ function collectionMetaToListItemProp(
 ): CollectionListItemProps {
   const toggleSelection = props.onSelectedIdsChange
     ? () => {
-        assertExists(props.selectedIds);
+        if (!props.selectedIds) {
+          throw new Error('selectedIds is not found');
+        }
         const prevSelected = props.selectedIds.includes(item.id);
         const shouldAdd = !prevSelected;
         const shouldRemove = prevSelected;
@@ -380,7 +385,9 @@ function tagMetaToListItemProp(
 ): TagListItemProps {
   const toggleSelection = props.onSelectedIdsChange
     ? () => {
-        assertExists(props.selectedIds);
+        if (!props.selectedIds) {
+          throw new Error('selectedIds is not found');
+        }
         const prevSelected = props.selectedIds.includes(item.id);
         const shouldAdd = !prevSelected;
         const shouldRemove = prevSelected;

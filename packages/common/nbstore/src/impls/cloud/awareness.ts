@@ -1,35 +1,38 @@
-import type { SocketOptions } from 'socket.io-client';
-
-import { share } from '../../connection';
 import {
   type AwarenessRecord,
-  AwarenessStorage,
-  type AwarenessStorageOptions,
+  AwarenessStorageBase,
 } from '../../storage/awareness';
+import type { SpaceType } from '../../utils/universal-id';
 import {
   base64ToUint8Array,
   SocketConnection,
   uint8ArrayToBase64,
 } from './socket';
 
-interface CloudAwarenessStorageOptions extends AwarenessStorageOptions {
-  socketOptions: SocketOptions;
+interface CloudAwarenessStorageOptions {
+  serverBaseUrl: string;
+  type: SpaceType;
+  id: string;
 }
 
-export class CloudAwarenessStorage extends AwarenessStorage<CloudAwarenessStorageOptions> {
-  connection = share(
-    new SocketConnection(this.peer, this.options.socketOptions)
-  );
+export class CloudAwarenessStorage extends AwarenessStorageBase {
+  static readonly identifier = 'CloudAwarenessStorage';
+
+  constructor(private readonly options: CloudAwarenessStorageOptions) {
+    super();
+  }
+
+  connection = new SocketConnection(this.options.serverBaseUrl);
 
   private get socket() {
-    return this.connection.inner;
+    return this.connection.inner.socket;
   }
 
   override async update(record: AwarenessRecord): Promise<void> {
     const encodedUpdate = await uint8ArrayToBase64(record.bin);
     this.socket.emit('space:update-awareness', {
-      spaceType: this.spaceType,
-      spaceId: this.spaceId,
+      spaceType: this.options.type,
+      spaceId: this.options.id,
       docId: record.docId,
       awarenessUpdate: encodedUpdate,
     });
@@ -38,44 +41,42 @@ export class CloudAwarenessStorage extends AwarenessStorage<CloudAwarenessStorag
   override subscribeUpdate(
     id: string,
     onUpdate: (update: AwarenessRecord, origin?: string) => void,
-    onCollect: () => AwarenessRecord
+    onCollect: () => Promise<AwarenessRecord | null>
   ): () => void {
-    // TODO: handle disconnect
     // leave awareness
     const leave = () => {
+      if (this.connection.status !== 'connected') return;
+      this.socket.off('space:collect-awareness', handleCollectAwareness);
+      this.socket.off(
+        'space:broadcast-awareness-update',
+        handleBroadcastAwarenessUpdate
+      );
       this.socket.emit('space:leave-awareness', {
-        spaceType: this.spaceType,
-        spaceId: this.spaceId,
+        spaceType: this.options.type,
+        spaceId: this.options.id,
         docId: id,
       });
     };
 
     // join awareness, and collect awareness from others
     const joinAndCollect = async () => {
+      this.socket.on('space:collect-awareness', handleCollectAwareness);
+      this.socket.on(
+        'space:broadcast-awareness-update',
+        handleBroadcastAwarenessUpdate
+      );
       await this.socket.emitWithAck('space:join-awareness', {
-        spaceType: this.spaceType,
-        spaceId: this.spaceId,
+        spaceType: this.options.type,
+        spaceId: this.options.id,
         docId: id,
         clientVersion: BUILD_CONFIG.appVersion,
       });
       this.socket.emit('space:load-awarenesses', {
-        spaceType: this.spaceType,
-        spaceId: this.spaceId,
+        spaceType: this.options.type,
+        spaceId: this.options.id,
         docId: id,
       });
     };
-
-    joinAndCollect().catch(err => console.error('awareness join failed', err));
-
-    const unsubscribeConnectionStatusChanged = this.connection.onStatusChanged(
-      status => {
-        if (status === 'connected') {
-          joinAndCollect().catch(err =>
-            console.error('awareness join failed', err)
-          );
-        }
-      }
-    );
 
     const handleCollectAwareness = ({
       spaceId,
@@ -87,19 +88,21 @@ export class CloudAwarenessStorage extends AwarenessStorage<CloudAwarenessStorag
       docId: string;
     }) => {
       if (
-        spaceId === this.spaceId &&
-        spaceType === this.spaceType &&
+        spaceId === this.options.id &&
+        spaceType === this.options.type &&
         docId === id
       ) {
         (async () => {
-          const record = onCollect();
-          const encodedUpdate = await uint8ArrayToBase64(record.bin);
-          this.socket.emit('space:update-awareness', {
-            spaceType: this.spaceType,
-            spaceId: this.spaceId,
-            docId: record.docId,
-            awarenessUpdate: encodedUpdate,
-          });
+          const record = await onCollect();
+          if (record) {
+            const encodedUpdate = await uint8ArrayToBase64(record.bin);
+            this.socket.emit('space:update-awareness', {
+              spaceType: this.options.type,
+              spaceId: this.options.id,
+              docId: record.docId,
+              awarenessUpdate: encodedUpdate,
+            });
+          }
         })().catch(err => console.error('awareness upload failed', err));
       }
     };
@@ -116,8 +119,8 @@ export class CloudAwarenessStorage extends AwarenessStorage<CloudAwarenessStorag
       awarenessUpdate: string;
     }) => {
       if (
-        spaceId === this.spaceId &&
-        spaceType === this.spaceType &&
+        spaceId === this.options.id &&
+        spaceType === this.options.type &&
         docId === id
       ) {
         onUpdate({
@@ -127,18 +130,25 @@ export class CloudAwarenessStorage extends AwarenessStorage<CloudAwarenessStorag
       }
     };
 
-    this.socket.on('space:collect-awareness', handleCollectAwareness);
-    this.socket.on(
-      'space:broadcast-awareness-update',
-      handleBroadcastAwarenessUpdate
+    if (this.connection.status === 'connected') {
+      joinAndCollect().catch(err =>
+        console.error('awareness join failed', err)
+      );
+    }
+
+    const unsubscribeConnectionStatusChanged = this.connection.onStatusChanged(
+      status => {
+        if (status === 'connected') {
+          joinAndCollect().catch(err =>
+            console.error('awareness join failed', err)
+          );
+        }
+      }
     );
+
     return () => {
       leave();
-      this.socket.off('space:collect-awareness', handleCollectAwareness);
-      this.socket.off(
-        'space:broadcast-awareness-update',
-        handleBroadcastAwarenessUpdate
-      );
+
       unsubscribeConnectionStatusChanged();
     };
   }

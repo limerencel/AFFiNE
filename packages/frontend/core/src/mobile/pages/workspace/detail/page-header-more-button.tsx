@@ -5,11 +5,13 @@ import {
   MobileMenu,
   MobileMenuItem,
 } from '@affine/component/ui/menu';
-import { useFavorite } from '@affine/core/components/blocksuite/block-suite-header/favorite';
+import { useFavorite } from '@affine/core/blocksuite/block-suite-header/favorite';
 import { IsFavoriteIcon } from '@affine/core/components/pure/icons';
-import { EditorOutlinePanel } from '@affine/core/desktop/pages/workspace/detail-page/tabs/outline';
 import { DocInfoSheet } from '@affine/core/mobile/components';
+import { MobileTocMenu } from '@affine/core/mobile/components/toc-menu';
+import { DocService } from '@affine/core/modules/doc';
 import { EditorService } from '@affine/core/modules/editor';
+import { GuardService } from '@affine/core/modules/permissions';
 import { ViewService } from '@affine/core/modules/workbench/services/view';
 import { preventDefault } from '@affine/core/utils';
 import { useI18n } from '@affine/i18n';
@@ -21,7 +23,7 @@ import {
   PageIcon,
   TocIcon,
 } from '@blocksuite/icons/rc';
-import { DocService, useLiveData, useService } from '@toeverything/infra';
+import { useLiveData, useService } from '@toeverything/infra';
 import { useCallback, useEffect, useState } from 'react';
 
 import { JournalConflictsMenuItem } from './menu/journal-conflicts';
@@ -33,6 +35,8 @@ export const PageHeaderMenuButton = () => {
   const t = useI18n();
 
   const docId = useService(DocService).doc.id;
+  const guardService = useService(GuardService);
+  const canEdit = useLiveData(guardService.can$('Doc_Update', docId));
 
   const editorService = useService(EditorService);
   const editorContainer = useLiveData(editorService.editor.editorContainer$);
@@ -93,6 +97,7 @@ export const PageHeaderMenuButton = () => {
         prefixIcon={primaryMode === 'page' ? <EdgelessIcon /> : <PageIcon />}
         data-testid="editor-option-menu-mode-switch"
         onSelect={handleSwitchMode}
+        disabled={!canEdit}
       >
         {primaryMode === 'page'
           ? t['com.affine.editorDefaultMode.edgeless']()
@@ -119,9 +124,10 @@ export const PageHeaderMenuButton = () => {
         <span>{t['com.affine.page-properties.page-info.view']()}</span>
       </MenuSub>
       <MobileMenu
+        title={t['com.affine.header.menu.toc']()}
         items={
           <div className={styles.outlinePanel}>
-            <EditorOutlinePanel editor={editorContainer} />
+            <MobileTocMenu editor={editorContainer?.host ?? null} />
           </div>
         }
       >

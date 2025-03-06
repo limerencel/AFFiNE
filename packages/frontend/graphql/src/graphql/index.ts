@@ -12,12 +12,26 @@ fragment PasswordLimits on PasswordLimitsType {
   minLength
   maxLength
 }`
-export const credentialsRequirementFragment = `
-fragment CredentialsRequirement on CredentialsRequirementType {
+export const credentialsRequirementsFragment = `
+fragment CredentialsRequirements on CredentialsRequirementType {
   password {
     ...PasswordLimits
   }
 }`
+export const activateLicenseMutation = {
+  id: 'activateLicenseMutation' as const,
+  operationName: 'activateLicense',
+  definitionName: 'activateLicense',
+  containsFile: false,
+  query: `
+mutation activateLicense($workspaceId: String!, $license: String!) {
+  activateLicense(workspaceId: $workspaceId, license: $license) {
+    installedAt
+    validatedAt
+  }
+}`,
+};
+
 export const adminServerConfigQuery = {
   id: 'adminServerConfigQuery' as const,
   operationName: 'adminServerConfig',
@@ -33,12 +47,12 @@ query adminServerConfig {
     type
     initialized
     credentialsRequirement {
-      ...CredentialsRequirement
+      ...CredentialsRequirements
     }
     availableUserFeatures
   }
 }${passwordLimitsFragment}
-${credentialsRequirementFragment}`,
+${credentialsRequirementsFragment}`,
 };
 
 export const deleteBlobMutation = {
@@ -144,6 +158,201 @@ mutation changePassword($token: String!, $userId: String!, $newPassword: String!
 }`,
 };
 
+export const createCopilotContextMutation = {
+  id: 'createCopilotContextMutation' as const,
+  operationName: 'createCopilotContext',
+  definitionName: 'createCopilotContext',
+  containsFile: false,
+  query: `
+mutation createCopilotContext($workspaceId: String!, $sessionId: String!) {
+  createCopilotContext(workspaceId: $workspaceId, sessionId: $sessionId)
+}`,
+};
+
+export const addContextDocMutation = {
+  id: 'addContextDocMutation' as const,
+  operationName: 'addContextDoc',
+  definitionName: 'addContextDoc',
+  containsFile: false,
+  query: `
+mutation addContextDoc($options: AddContextDocInput!) {
+  addContextDoc(options: $options) {
+    id
+    createdAt
+  }
+}`,
+};
+
+export const removeContextDocMutation = {
+  id: 'removeContextDocMutation' as const,
+  operationName: 'removeContextDoc',
+  definitionName: 'removeContextDoc',
+  containsFile: false,
+  query: `
+mutation removeContextDoc($options: RemoveContextDocInput!) {
+  removeContextDoc(options: $options)
+}`,
+};
+
+export const listContextDocsAndFilesQuery = {
+  id: 'listContextDocsAndFilesQuery' as const,
+  operationName: 'listContextDocsAndFiles',
+  definitionName: 'currentUser',
+  containsFile: false,
+  query: `
+query listContextDocsAndFiles($workspaceId: String!, $sessionId: String!, $contextId: String!) {
+  currentUser {
+    copilot(workspaceId: $workspaceId) {
+      contexts(sessionId: $sessionId, contextId: $contextId) {
+        docs {
+          id
+          createdAt
+        }
+        files {
+          id
+          name
+          blobId
+          chunkSize
+          status
+          createdAt
+        }
+      }
+    }
+  }
+}`,
+};
+
+export const listContextQuery = {
+  id: 'listContextQuery' as const,
+  operationName: 'listContext',
+  definitionName: 'currentUser',
+  containsFile: false,
+  query: `
+query listContext($workspaceId: String!, $sessionId: String!) {
+  currentUser {
+    copilot(workspaceId: $workspaceId) {
+      contexts(sessionId: $sessionId) {
+        id
+      }
+    }
+  }
+}`,
+};
+
+export const getCopilotHistoryIdsQuery = {
+  id: 'getCopilotHistoryIdsQuery' as const,
+  operationName: 'getCopilotHistoryIds',
+  definitionName: 'currentUser',
+  containsFile: false,
+  query: `
+query getCopilotHistoryIds($workspaceId: String!, $docId: String, $options: QueryChatHistoriesInput) {
+  currentUser {
+    copilot(workspaceId: $workspaceId) {
+      histories(docId: $docId, options: $options) {
+        sessionId
+        messages {
+          id
+          role
+          createdAt
+        }
+      }
+    }
+  }
+}`,
+};
+
+export const getCopilotHistoriesQuery = {
+  id: 'getCopilotHistoriesQuery' as const,
+  operationName: 'getCopilotHistories',
+  definitionName: 'currentUser',
+  containsFile: false,
+  query: `
+query getCopilotHistories($workspaceId: String!, $docId: String, $options: QueryChatHistoriesInput) {
+  currentUser {
+    copilot(workspaceId: $workspaceId) {
+      histories(docId: $docId, options: $options) {
+        sessionId
+        tokens
+        action
+        createdAt
+        messages {
+          id
+          role
+          content
+          attachments
+          createdAt
+        }
+      }
+    }
+  }
+}`,
+};
+
+export const createCopilotMessageMutation = {
+  id: 'createCopilotMessageMutation' as const,
+  operationName: 'createCopilotMessage',
+  definitionName: 'createCopilotMessage',
+  containsFile: true,
+  query: `
+mutation createCopilotMessage($options: CreateChatMessageInput!) {
+  createCopilotMessage(options: $options)
+}`,
+};
+
+export const getPromptsQuery = {
+  id: 'getPromptsQuery' as const,
+  operationName: 'getPrompts',
+  definitionName: 'listCopilotPrompts',
+  containsFile: false,
+  query: `
+query getPrompts {
+  listCopilotPrompts {
+    name
+    model
+    action
+    config {
+      jsonMode
+      frequencyPenalty
+      presencePenalty
+      temperature
+      topP
+    }
+    messages {
+      role
+      content
+      params
+    }
+  }
+}`,
+};
+
+export const updatePromptMutation = {
+  id: 'updatePromptMutation' as const,
+  operationName: 'updatePrompt',
+  definitionName: 'updateCopilotPrompt',
+  containsFile: false,
+  query: `
+mutation updatePrompt($name: String!, $messages: [CopilotPromptMessageInput!]!) {
+  updateCopilotPrompt(name: $name, messages: $messages) {
+    name
+    model
+    action
+    config {
+      jsonMode
+      frequencyPenalty
+      presencePenalty
+      temperature
+      topP
+    }
+    messages {
+      role
+      content
+      params
+    }
+  }
+}`,
+};
+
 export const copilotQuotaQuery = {
   id: 'copilotQuotaQuery' as const,
   operationName: 'copilotQuota',
@@ -173,28 +382,6 @@ mutation cleanupCopilotSession($input: DeleteSessionInput!) {
 }`,
 };
 
-export const createCheckoutSessionMutation = {
-  id: 'createCheckoutSessionMutation' as const,
-  operationName: 'createCheckoutSession',
-  definitionName: 'createCheckoutSession',
-  containsFile: false,
-  query: `
-mutation createCheckoutSession($input: CreateCheckoutSessionInput!) {
-  createCheckoutSession(input: $input)
-}`,
-};
-
-export const createCopilotMessageMutation = {
-  id: 'createCopilotMessageMutation' as const,
-  operationName: 'createCopilotMessage',
-  definitionName: 'createCopilotMessage',
-  containsFile: true,
-  query: `
-mutation createCopilotMessage($options: CreateChatMessageInput!) {
-  createCopilotMessage(options: $options)
-}`,
-};
-
 export const createCopilotSessionMutation = {
   id: 'createCopilotSessionMutation' as const,
   operationName: 'createCopilotSession',
@@ -206,6 +393,58 @@ mutation createCopilotSession($options: CreateChatSessionInput!) {
 }`,
 };
 
+export const forkCopilotSessionMutation = {
+  id: 'forkCopilotSessionMutation' as const,
+  operationName: 'forkCopilotSession',
+  definitionName: 'forkCopilotSession',
+  containsFile: false,
+  query: `
+mutation forkCopilotSession($options: ForkChatSessionInput!) {
+  forkCopilotSession(options: $options)
+}`,
+};
+
+export const updateCopilotSessionMutation = {
+  id: 'updateCopilotSessionMutation' as const,
+  operationName: 'updateCopilotSession',
+  definitionName: 'updateCopilotSession',
+  containsFile: false,
+  query: `
+mutation updateCopilotSession($options: UpdateChatSessionInput!) {
+  updateCopilotSession(options: $options)
+}`,
+};
+
+export const getCopilotSessionsQuery = {
+  id: 'getCopilotSessionsQuery' as const,
+  operationName: 'getCopilotSessions',
+  definitionName: 'currentUser',
+  containsFile: false,
+  query: `
+query getCopilotSessions($workspaceId: String!, $docId: String, $options: QueryChatSessionsInput) {
+  currentUser {
+    copilot(workspaceId: $workspaceId) {
+      sessions(docId: $docId, options: $options) {
+        id
+        parentSessionId
+        promptName
+      }
+    }
+  }
+}`,
+};
+
+export const createCheckoutSessionMutation = {
+  id: 'createCheckoutSessionMutation' as const,
+  operationName: 'createCheckoutSession',
+  definitionName: 'createCheckoutSession',
+  containsFile: false,
+  query: `
+mutation createCheckoutSession($input: CreateCheckoutSessionInput!) {
+  createCheckoutSession(input: $input)
+}`,
+};
+
 export const createCustomerPortalMutation = {
   id: 'createCustomerPortalMutation' as const,
   operationName: 'createCustomerPortal',
@@ -214,6 +453,17 @@ export const createCustomerPortalMutation = {
   query: `
 mutation createCustomerPortal {
   createCustomerPortal
+}`,
+};
+
+export const createSelfhostCustomerPortalMutation = {
+  id: 'createSelfhostCustomerPortalMutation' as const,
+  operationName: 'createSelfhostCustomerPortal',
+  definitionName: 'createSelfhostWorkspaceCustomerPortal',
+  containsFile: false,
+  query: `
+mutation createSelfhostCustomerPortal($workspaceId: String!) {
+  createSelfhostWorkspaceCustomerPortal(workspaceId: $workspaceId)
 }`,
 };
 
@@ -242,6 +492,17 @@ mutation createWorkspace {
     public
     createdAt
   }
+}`,
+};
+
+export const deactivateLicenseMutation = {
+  id: 'deactivateLicenseMutation' as const,
+  operationName: 'deactivateLicense',
+  definitionName: 'deactivateLicense',
+  containsFile: false,
+  query: `
+mutation deactivateLicense($workspaceId: String!) {
+  deactivateLicense(workspaceId: $workspaceId)
 }`,
 };
 
@@ -282,79 +543,43 @@ mutation deleteWorkspace($id: String!) {
 }`,
 };
 
-export const forkCopilotSessionMutation = {
-  id: 'forkCopilotSessionMutation' as const,
-  operationName: 'forkCopilotSession',
-  definitionName: 'forkCopilotSession',
+export const getDocRolePermissionsQuery = {
+  id: 'getDocRolePermissionsQuery' as const,
+  operationName: 'getDocRolePermissions',
+  definitionName: 'workspace',
   containsFile: false,
   query: `
-mutation forkCopilotSession($options: ForkChatSessionInput!) {
-  forkCopilotSession(options: $options)
-}`,
-};
-
-export const getCopilotHistoriesQuery = {
-  id: 'getCopilotHistoriesQuery' as const,
-  operationName: 'getCopilotHistories',
-  definitionName: 'currentUser',
-  containsFile: false,
-  query: `
-query getCopilotHistories($workspaceId: String!, $docId: String, $options: QueryChatHistoriesInput) {
-  currentUser {
-    copilot(workspaceId: $workspaceId) {
-      histories(docId: $docId, options: $options) {
-        sessionId
-        tokens
-        action
-        createdAt
-        messages {
-          id
-          role
-          content
-          attachments
-          createdAt
-        }
+query getDocRolePermissions($workspaceId: String!, $docId: String!) {
+  workspace(id: $workspaceId) {
+    doc(docId: $docId) {
+      permissions {
+        Doc_Copy
+        Doc_Delete
+        Doc_Duplicate
+        Doc_Properties_Read
+        Doc_Properties_Update
+        Doc_Publish
+        Doc_Read
+        Doc_Restore
+        Doc_TransferOwner
+        Doc_Trash
+        Doc_Update
+        Doc_Users_Manage
+        Doc_Users_Read
       }
     }
   }
 }`,
 };
 
-export const getCopilotHistoryIdsQuery = {
-  id: 'getCopilotHistoryIdsQuery' as const,
-  operationName: 'getCopilotHistoryIds',
-  definitionName: 'currentUser',
+export const generateLicenseKeyMutation = {
+  id: 'generateLicenseKeyMutation' as const,
+  operationName: 'generateLicenseKey',
+  definitionName: 'generateLicenseKey',
   containsFile: false,
   query: `
-query getCopilotHistoryIds($workspaceId: String!, $docId: String, $options: QueryChatHistoriesInput) {
-  currentUser {
-    copilot(workspaceId: $workspaceId) {
-      histories(docId: $docId, options: $options) {
-        sessionId
-        messages {
-          id
-          role
-          createdAt
-        }
-      }
-    }
-  }
-}`,
-};
-
-export const getCopilotSessionsQuery = {
-  id: 'getCopilotSessionsQuery' as const,
-  operationName: 'getCopilotSessions',
-  definitionName: 'currentUser',
-  containsFile: false,
-  query: `
-query getCopilotSessions($workspaceId: String!) {
-  currentUser {
-    copilot(workspaceId: $workspaceId) {
-      actions
-      chats
-    }
-  }
+mutation generateLicenseKey($sessionId: String!) {
+  generateLicenseKey(sessionId: $sessionId)
 }`,
 };
 
@@ -391,6 +616,21 @@ query getCurrentUser {
     avatarUrl
     token {
       sessionToken
+    }
+  }
+}`,
+};
+
+export const getDocDefaultRoleQuery = {
+  id: 'getDocDefaultRoleQuery' as const,
+  operationName: 'getDocDefaultRole',
+  definitionName: 'workspace',
+  containsFile: false,
+  query: `
+query getDocDefaultRole($workspaceId: String!, $docId: String!) {
+  workspace(id: $workspaceId) {
+    doc(docId: $docId) {
+      defaultRole
     }
   }
 }`,
@@ -440,6 +680,25 @@ query getIsOwner($workspaceId: String!) {
 }`,
 };
 
+export const getLicenseQuery = {
+  id: 'getLicenseQuery' as const,
+  operationName: 'getLicense',
+  definitionName: 'workspace',
+  containsFile: false,
+  query: `
+query getLicense($workspaceId: String!) {
+  workspace(id: $workspaceId) {
+    license {
+      expiredAt
+      installedAt
+      quantity
+      recurring
+      validatedAt
+    }
+  }
+}`,
+};
+
 export const getMemberCountByWorkspaceIdQuery = {
   id: 'getMemberCountByWorkspaceIdQuery' as const,
   operationName: 'getMemberCountByWorkspaceId',
@@ -459,17 +718,16 @@ export const getMembersByWorkspaceIdQuery = {
   definitionName: 'workspace',
   containsFile: false,
   query: `
-query getMembersByWorkspaceId($workspaceId: String!, $skip: Int!, $take: Int!) {
+query getMembersByWorkspaceId($workspaceId: String!, $skip: Int, $take: Int, $query: String) {
   workspace(id: $workspaceId) {
     memberCount
-    members(skip: $skip, take: $take) {
+    members(skip: $skip, take: $take, query: $query) {
       id
       name
       email
       avatarUrl
       permission
       inviteId
-      accepted
       emailVerified
       status
     }
@@ -490,28 +748,33 @@ query oauthProviders {
 }`,
 };
 
-export const getPromptsQuery = {
-  id: 'getPromptsQuery' as const,
-  operationName: 'getPrompts',
-  definitionName: 'listCopilotPrompts',
+export const getPageGrantedUsersListQuery = {
+  id: 'getPageGrantedUsersListQuery' as const,
+  operationName: 'getPageGrantedUsersList',
+  definitionName: 'workspace',
   containsFile: false,
   query: `
-query getPrompts {
-  listCopilotPrompts {
-    name
-    model
-    action
-    config {
-      jsonMode
-      frequencyPenalty
-      presencePenalty
-      temperature
-      topP
-    }
-    messages {
-      role
-      content
-      params
+query getPageGrantedUsersList($pagination: PaginationInput!, $docId: String!, $workspaceId: String!) {
+  workspace(id: $workspaceId) {
+    doc(docId: $docId) {
+      grantedUsersList(pagination: $pagination) {
+        totalCount
+        pageInfo {
+          endCursor
+          hasNextPage
+        }
+        edges {
+          node {
+            role
+            user {
+              id
+              name
+              email
+              avatarUrl
+            }
+          }
+        }
+      }
     }
   }
 }`,
@@ -627,19 +890,6 @@ query getUsersCount {
 }`,
 };
 
-export const getWorkspaceFeaturesQuery = {
-  id: 'getWorkspaceFeaturesQuery' as const,
-  operationName: 'getWorkspaceFeatures',
-  definitionName: 'workspace',
-  containsFile: false,
-  query: `
-query getWorkspaceFeatures($workspaceId: String!) {
-  workspace(id: $workspaceId) {
-    features
-  }
-}`,
-};
-
 export const getWorkspaceInfoQuery = {
   id: 'getWorkspaceInfoQuery' as const,
   operationName: 'getWorkspaceInfo',
@@ -651,6 +901,24 @@ query getWorkspaceInfo($workspaceId: String!) {
   isOwner(workspaceId: $workspaceId)
   workspace(id: $workspaceId) {
     team
+  }
+}`,
+};
+
+export const getWorkspacePageByIdQuery = {
+  id: 'getWorkspacePageByIdQuery' as const,
+  operationName: 'getWorkspacePageById',
+  definitionName: 'workspace',
+  containsFile: false,
+  query: `
+query getWorkspacePageById($workspaceId: String!, $pageId: String!) {
+  workspace(id: $workspaceId) {
+    doc(docId: $pageId) {
+      id
+      mode
+      defaultRole
+      public
+    }
   }
 }`,
 };
@@ -692,22 +960,6 @@ query getWorkspacePublicById($id: String!) {
 }`,
 };
 
-export const getWorkspacePublicPageByIdQuery = {
-  id: 'getWorkspacePublicPageByIdQuery' as const,
-  operationName: 'getWorkspacePublicPageById',
-  definitionName: 'workspace',
-  containsFile: false,
-  query: `
-query getWorkspacePublicPageById($workspaceId: String!, $pageId: String!) {
-  workspace(id: $workspaceId) {
-    publicPage(pageId: $pageId) {
-      id
-      mode
-    }
-  }
-}`,
-};
-
 export const getWorkspacePublicPagesQuery = {
   id: 'getWorkspacePublicPagesQuery' as const,
   operationName: 'getWorkspacePublicPages',
@@ -716,7 +968,7 @@ export const getWorkspacePublicPagesQuery = {
   query: `
 query getWorkspacePublicPages($workspaceId: String!) {
   workspace(id: $workspaceId) {
-    publicPages {
+    publicDocs {
       id
       mode
     }
@@ -775,6 +1027,17 @@ query getWorkspaces {
       id
     }
   }
+}`,
+};
+
+export const grantDocUserRolesMutation = {
+  id: 'grantDocUserRolesMutation' as const,
+  operationName: 'grantDocUserRoles',
+  definitionName: 'grantDocUserRoles',
+  containsFile: false,
+  query: `
+mutation grantDocUserRoles($input: GrantDocUserRolesInput!) {
+  grantDocUserRoles(input: $input)
 }`,
 };
 
@@ -885,11 +1148,11 @@ query prices {
 export const publishPageMutation = {
   id: 'publishPageMutation' as const,
   operationName: 'publishPage',
-  definitionName: 'publishPage',
+  definitionName: 'publishDoc',
   containsFile: false,
   query: `
-mutation publishPage($workspaceId: String!, $pageId: String!, $mode: PublicPageMode = Page) {
-  publishPage(workspaceId: $workspaceId, pageId: $pageId, mode: $mode) {
+mutation publishPage($workspaceId: String!, $pageId: String!, $mode: PublicDocMode = Page) {
+  publishDoc(workspaceId: $workspaceId, docId: $pageId, mode: $mode) {
     id
     mode
   }
@@ -967,6 +1230,17 @@ mutation resumeSubscription($plan: SubscriptionPlan = Pro, $workspaceId: String)
 }`,
 };
 
+export const revokeDocUserRolesMutation = {
+  id: 'revokeDocUserRolesMutation' as const,
+  operationName: 'revokeDocUserRoles',
+  definitionName: 'revokeDocUserRoles',
+  containsFile: false,
+  query: `
+mutation revokeDocUserRoles($input: RevokeDocUserRoleInput!) {
+  revokeDocUserRoles(input: $input)
+}`,
+};
+
 export const revokeMemberPermissionMutation = {
   id: 'revokeMemberPermissionMutation' as const,
   operationName: 'revokeMemberPermission',
@@ -981,11 +1255,11 @@ mutation revokeMemberPermission($workspaceId: String!, $userId: String!) {
 export const revokePublicPageMutation = {
   id: 'revokePublicPageMutation' as const,
   operationName: 'revokePublicPage',
-  definitionName: 'revokePublicPage',
+  definitionName: 'revokePublicDoc',
   containsFile: false,
   query: `
 mutation revokePublicPage($workspaceId: String!, $pageId: String!) {
-  revokePublicPage(workspaceId: $workspaceId, pageId: $pageId) {
+  revokePublicDoc(workspaceId: $workspaceId, docId: $pageId) {
     id
     mode
     public
@@ -1063,11 +1337,11 @@ query serverConfig {
     type
     initialized
     credentialsRequirement {
-      ...CredentialsRequirement
+      ...CredentialsRequirements
     }
   }
 }${passwordLimitsFragment}
-${credentialsRequirementFragment}`,
+${credentialsRequirementsFragment}`,
 };
 
 export const setWorkspacePublicByIdMutation = {
@@ -1133,30 +1407,25 @@ mutation updateAccount($id: String!, $input: ManageUserInput!) {
 }`,
 };
 
-export const updatePromptMutation = {
-  id: 'updatePromptMutation' as const,
-  operationName: 'updatePrompt',
-  definitionName: 'updateCopilotPrompt',
+export const updateDocDefaultRoleMutation = {
+  id: 'updateDocDefaultRoleMutation' as const,
+  operationName: 'updateDocDefaultRole',
+  definitionName: 'updateDocDefaultRole',
   containsFile: false,
   query: `
-mutation updatePrompt($name: String!, $messages: [CopilotPromptMessageInput!]!) {
-  updateCopilotPrompt(name: $name, messages: $messages) {
-    name
-    model
-    action
-    config {
-      jsonMode
-      frequencyPenalty
-      presencePenalty
-      temperature
-      topP
-    }
-    messages {
-      role
-      content
-      params
-    }
-  }
+mutation updateDocDefaultRole($input: UpdateDocDefaultRoleInput!) {
+  updateDocDefaultRole(input: $input)
+}`,
+};
+
+export const updateDocUserRoleMutation = {
+  id: 'updateDocUserRoleMutation' as const,
+  operationName: 'updateDocUserRole',
+  definitionName: 'updateDocUserRole',
+  containsFile: false,
+  query: `
+mutation updateDocUserRole($input: UpdateDocUserRoleInput!) {
+  updateDocUserRole(input: $input)
 }`,
 };
 
@@ -1279,100 +1548,16 @@ mutation setEnableUrlPreview($id: ID!, $enableUrlPreview: Boolean!) {
 }`,
 };
 
-export const enabledFeaturesQuery = {
-  id: 'enabledFeaturesQuery' as const,
-  operationName: 'enabledFeatures',
-  definitionName: 'workspace',
-  containsFile: false,
-  query: `
-query enabledFeatures($id: String!) {
-  workspace(id: $id) {
-    features
-  }
-}`,
-};
-
-export const availableFeaturesQuery = {
-  id: 'availableFeaturesQuery' as const,
-  operationName: 'availableFeatures',
-  definitionName: 'workspace',
-  containsFile: false,
-  query: `
-query availableFeatures($id: String!) {
-  workspace(id: $id) {
-    availableFeatures
-  }
-}`,
-};
-
-export const setWorkspaceExperimentalFeatureMutation = {
-  id: 'setWorkspaceExperimentalFeatureMutation' as const,
-  operationName: 'setWorkspaceExperimentalFeature',
-  definitionName: 'setWorkspaceExperimentalFeature',
-  containsFile: false,
-  query: `
-mutation setWorkspaceExperimentalFeature($workspaceId: String!, $feature: FeatureType!, $enable: Boolean!) {
-  setWorkspaceExperimentalFeature(
-    workspaceId: $workspaceId
-    feature: $feature
-    enable: $enable
-  )
-}`,
-};
-
-export const addWorkspaceFeatureMutation = {
-  id: 'addWorkspaceFeatureMutation' as const,
-  operationName: 'addWorkspaceFeature',
-  definitionName: 'addWorkspaceFeature',
-  containsFile: false,
-  query: `
-mutation addWorkspaceFeature($workspaceId: String!, $feature: FeatureType!) {
-  addWorkspaceFeature(workspaceId: $workspaceId, feature: $feature)
-}`,
-};
-
-export const listWorkspaceFeaturesQuery = {
-  id: 'listWorkspaceFeaturesQuery' as const,
-  operationName: 'listWorkspaceFeatures',
-  definitionName: 'listWorkspaceFeatures',
-  containsFile: false,
-  query: `
-query listWorkspaceFeatures($feature: FeatureType!) {
-  listWorkspaceFeatures(feature: $feature) {
-    id
-    public
-    createdAt
-    memberCount
-    owner {
-      id
-    }
-    features
-  }
-}`,
-};
-
-export const removeWorkspaceFeatureMutation = {
-  id: 'removeWorkspaceFeatureMutation' as const,
-  operationName: 'removeWorkspaceFeature',
-  definitionName: 'removeWorkspaceFeature',
-  containsFile: false,
-  query: `
-mutation removeWorkspaceFeature($workspaceId: String!, $feature: FeatureType!) {
-  removeWorkspaceFeature(workspaceId: $workspaceId, feature: $feature)
-}`,
-};
-
 export const inviteByEmailMutation = {
   id: 'inviteByEmailMutation' as const,
   operationName: 'inviteByEmail',
   definitionName: 'invite',
   containsFile: false,
   query: `
-mutation inviteByEmail($workspaceId: String!, $email: String!, $permission: Permission!, $sendInviteMail: Boolean) {
+mutation inviteByEmail($workspaceId: String!, $email: String!, $sendInviteMail: Boolean) {
   invite(
     workspaceId: $workspaceId
     email: $email
-    permission: $permission
     sendInviteMail: $sendInviteMail
   )
 }`,
@@ -1491,6 +1676,7 @@ query workspaceQuota($id: String!) {
       name
       blobLimit
       storageQuota
+      usedStorageQuota
       historyPeriod
       memberLimit
       memberCount
@@ -1501,7 +1687,40 @@ query workspaceQuota($id: String!) {
         historyPeriod
         memberLimit
       }
-      usedSize
+    }
+  }
+}`,
+};
+
+export const getWorkspaceRolePermissionsQuery = {
+  id: 'getWorkspaceRolePermissionsQuery' as const,
+  operationName: 'getWorkspaceRolePermissions',
+  definitionName: 'workspaceRolePermissions',
+  containsFile: false,
+  query: `
+query getWorkspaceRolePermissions($id: String!) {
+  workspaceRolePermissions(id: $id) {
+    permissions {
+      Workspace_Adminitrators_Manage
+      Workspace_Blobs_List
+      Workspace_Blobs_Read
+      Workspace_Blobs_Write
+      Workspace_Copilot
+      Workspace_CreateDoc
+      Workspace_Delete
+      Workspace_Organize_Read
+      Workspace_Payment_Manage
+      Workspace_Properties_Create
+      Workspace_Properties_Delete
+      Workspace_Properties_Read
+      Workspace_Properties_Update
+      Workspace_Read
+      Workspace_Settings_Read
+      Workspace_Settings_Update
+      Workspace_Sync
+      Workspace_TransferOwner
+      Workspace_Users_Manage
+      Workspace_Users_Read
     }
   }
 }`,

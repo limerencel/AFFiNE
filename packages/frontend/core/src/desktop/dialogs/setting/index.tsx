@@ -2,23 +2,26 @@ import { Loading, Scrollable } from '@affine/component';
 import { WorkspaceDetailSkeleton } from '@affine/component/setting-components';
 import type { ModalProps } from '@affine/component/ui/modal';
 import { Modal } from '@affine/component/ui/modal';
-import { AuthService } from '@affine/core/modules/cloud';
+import {
+  AuthService,
+  DefaultServerService,
+  ServersService,
+} from '@affine/core/modules/cloud';
+import type { DialogComponentProps } from '@affine/core/modules/dialogs';
 import type {
-  DialogComponentProps,
-  GLOBAL_DIALOG_SCHEMA,
-} from '@affine/core/modules/dialogs';
-import type { SettingTab } from '@affine/core/modules/dialogs/constant';
+  SettingTab,
+  WORKSPACE_DIALOG_SCHEMA,
+} from '@affine/core/modules/dialogs/constant';
+import { GlobalContextService } from '@affine/core/modules/global-context';
+import { ServerDeploymentType } from '@affine/graphql';
 import { Trans } from '@affine/i18n';
 import { ContactWithUsIcon } from '@blocksuite/icons/rc';
-import {
-  useLiveData,
-  useService,
-  type WorkspaceMetadata,
-} from '@toeverything/infra';
+import { FrameworkScope, useLiveData, useService } from '@toeverything/infra';
 import { debounce } from 'lodash-es';
 import {
   Suspense,
   useCallback,
+  useEffect,
   useLayoutEffect,
   useRef,
   useState,
@@ -35,7 +38,6 @@ import { WorkspaceSetting } from './workspace-setting';
 
 interface SettingProps extends ModalProps {
   activeTab?: SettingTab;
-  workspaceMetadata?: WorkspaceMetadata | null;
   onCloseSetting: () => void;
 }
 
@@ -52,15 +54,31 @@ const CenteredLoading = () => {
 
 const SettingModalInner = ({
   activeTab: initialActiveTab = 'appearance',
-  workspaceMetadata: initialWorkspaceMetadata = null,
   onCloseSetting,
 }: SettingProps) => {
   const [settingState, setSettingState] = useState<SettingState>({
     activeTab: initialActiveTab,
-    activeWorkspaceMetadata: initialWorkspaceMetadata,
     scrollAnchor: undefined,
   });
-  const loginStatus = useLiveData(useService(AuthService).session.status$);
+  const globalContextService = useService(GlobalContextService);
+
+  const currentServerId = useLiveData(
+    globalContextService.globalContext.serverId.$
+  );
+  const serversService = useService(ServersService);
+  const defaultServerService = useService(DefaultServerService);
+  const currentServer =
+    useLiveData(
+      currentServerId ? serversService.server$(currentServerId) : null
+    ) ?? defaultServerService.server;
+  const loginStatus = useLiveData(
+    currentServer.scope.get(AuthService).session.status$
+  );
+  const isSelfhosted = useLiveData(
+    currentServer.config$.selector(
+      c => c.type === ServerDeploymentType.Selfhosted
+    )
+  );
 
   const modalContentRef = useRef<HTMLDivElement>(null);
   const modalContentWrapperRef = useRef<HTMLDivElement>(null);
@@ -106,8 +124,8 @@ const SettingModalInner = ({
   }, []);
 
   const onTabChange = useCallback(
-    (key: SettingTab, meta: WorkspaceMetadata | null) => {
-      setSettingState({ activeTab: key, activeWorkspaceMetadata: meta });
+    (key: SettingTab) => {
+      setSettingState({ activeTab: key });
     },
     [setSettingState]
   );
@@ -122,12 +140,21 @@ const SettingModalInner = ({
     setOpenStarAFFiNEModal(true);
   }, [setOpenStarAFFiNEModal]);
 
+  useEffect(() => {
+    if (
+      isSelfhosted &&
+      (settingState.activeTab === 'plans' ||
+        settingState.activeTab === 'workspace:billing')
+    ) {
+      setSettingState({ activeTab: 'workspace:license' });
+    }
+  }, [isSelfhosted, settingState.activeTab]);
+
   return (
-    <>
+    <FrameworkScope scope={currentServer.scope}>
       <SettingSidebar
         activeTab={settingState.activeTab}
         onTabChange={onTabChange}
-        selectedWorkspaceId={settingState.activeWorkspaceMetadata?.id ?? null}
       />
       <Scrollable.Root>
         <Scrollable.Viewport
@@ -142,11 +169,9 @@ const SettingModalInner = ({
                 {settingState.activeTab === 'account' &&
                 loginStatus === 'authenticated' ? (
                   <AccountSetting onChangeSettingState={setSettingState} />
-                ) : isWorkspaceSetting(settingState.activeTab) &&
-                  settingState.activeWorkspaceMetadata ? (
+                ) : isWorkspaceSetting(settingState.activeTab) ? (
                   <WorkspaceSetting
                     activeTab={settingState.activeTab}
-                    workspaceMetadata={settingState.activeWorkspaceMetadata}
                     onCloseSetting={onCloseSetting}
                     onChangeSettingState={setSettingState}
                   />
@@ -191,15 +216,14 @@ const SettingModalInner = ({
           <Scrollable.Scrollbar />
         </Scrollable.Viewport>
       </Scrollable.Root>
-    </>
+    </FrameworkScope>
   );
 };
 
 export const SettingDialog = ({
   close,
   activeTab,
-  workspaceMetadata,
-}: DialogComponentProps<GLOBAL_DIALOG_SCHEMA['setting']>) => {
+}: DialogComponentProps<WORKSPACE_DIALOG_SCHEMA['setting']>) => {
   return (
     <Modal
       width={1280}
@@ -218,11 +242,7 @@ export const SettingDialog = ({
       onOpenChange={() => close()}
     >
       <Suspense fallback={<CenteredLoading />}>
-        <SettingModalInner
-          activeTab={activeTab}
-          workspaceMetadata={workspaceMetadata}
-          onCloseSetting={close}
-        />
+        <SettingModalInner activeTab={activeTab} onCloseSetting={close} />
       </Suspense>
     </Modal>
   );

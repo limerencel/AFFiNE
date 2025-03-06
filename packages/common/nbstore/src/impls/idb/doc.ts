@@ -2,11 +2,10 @@ import {
   type DocClock,
   type DocClocks,
   type DocRecord,
-  DocStorage,
-  type DocStorageOptions,
+  DocStorageBase,
   type DocUpdate,
 } from '../../storage';
-import { IDBConnection } from './db';
+import { IDBConnection, type IDBConnectionOptions } from './db';
 import { IndexedDBLocker } from './lock';
 
 interface ChannelMessage {
@@ -15,7 +14,9 @@ interface ChannelMessage {
   origin?: string;
 }
 
-export class IndexedDBDocStorage extends DocStorage {
+export class IndexedDBDocStorage extends DocStorageBase<IDBConnectionOptions> {
+  static readonly identifier = 'IndexedDBDocStorage';
+
   readonly connection = new IDBConnection(this.options);
 
   get db() {
@@ -28,30 +29,35 @@ export class IndexedDBDocStorage extends DocStorage {
 
   override locker = new IndexedDBLocker(this.connection);
 
-  private _lastTimestamp = new Date(0);
-
-  constructor(options: DocStorageOptions) {
-    super(options);
-  }
-
-  private generateTimestamp() {
-    const timestamp = new Date();
-    if (timestamp.getTime() <= this._lastTimestamp.getTime()) {
-      timestamp.setTime(this._lastTimestamp.getTime() + 1);
-    }
-    this._lastTimestamp = timestamp;
-    return timestamp;
-  }
-
   override async pushDocUpdate(update: DocUpdate, origin?: string) {
-    const trx = this.db.transaction(['updates', 'clocks'], 'readwrite');
-    const timestamp = this.generateTimestamp();
-    await trx.objectStore('updates').add({
-      ...update,
-      createdAt: timestamp,
-    });
+    let timestamp = new Date();
 
-    await trx.objectStore('clocks').put({ docId: update.docId, timestamp });
+    let retry = 0;
+
+    while (true) {
+      try {
+        const trx = this.db.transaction(['updates', 'clocks'], 'readwrite');
+
+        await trx.objectStore('updates').add({
+          ...update,
+          createdAt: timestamp,
+        });
+
+        await trx.objectStore('clocks').put({ docId: update.docId, timestamp });
+
+        trx.commit();
+      } catch (e) {
+        if (e instanceof Error && e.name === 'ConstraintError') {
+          retry++;
+          if (retry < 10) {
+            timestamp = new Date(timestamp.getTime() + 1);
+            continue;
+          }
+        }
+        throw e;
+      }
+      break;
+    }
 
     this.emit(
       'update',
@@ -194,9 +200,9 @@ export class IndexedDBDocStorage extends DocStorage {
     };
   }
 
-  handleChannelMessage(event: MessageEvent<ChannelMessage>) {
+  handleChannelMessage = (event: MessageEvent<ChannelMessage>) => {
     if (event.data.type === 'update') {
       this.emit('update', event.data.update, event.data.origin);
     }
-  }
+  };
 }

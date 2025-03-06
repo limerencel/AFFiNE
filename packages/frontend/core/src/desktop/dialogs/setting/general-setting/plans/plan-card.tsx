@@ -130,6 +130,7 @@ const ActionButton = ({ detail, recurring }: PlanCardProps) => {
   //  if contact                                => 'Contact Sales'
   //  if not signed in:
   //    if free                                 => 'Sign up free'
+  //    if team                                 => 'Upgrade'
   //    else                                    => 'Buy Pro'
   //  else
   //    if team                                 => 'Start 14-day free trial'
@@ -144,14 +145,14 @@ const ActionButton = ({ detail, recurring }: PlanCardProps) => {
   //    if currentRecurring !== recurring       => 'Change to {recurring} Billing'
   //    else                                    => 'Upgrade'
 
-  // not signed in
-  if (!loggedIn) {
-    return <SignUpAction>{signUpText}</SignUpAction>;
-  }
-
   // team
   if (detail.plan === SubscriptionPlan.Team) {
     return <UpgradeToTeam recurring={recurring} />;
+  }
+
+  // not signed in
+  if (!loggedIn) {
+    return <SignUpAction>{signUpText}</SignUpAction>;
   }
 
   // lifetime

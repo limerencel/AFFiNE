@@ -5,6 +5,7 @@ import {
   createSign,
   createVerify,
   randomBytes,
+  randomInt,
   timingSafeEqual,
 } from 'node:crypto';
 
@@ -45,10 +46,14 @@ export class CryptoHelper {
     const sign = createSign('rsa-sha256');
     sign.update(data, 'utf-8');
     sign.end();
-    return sign.sign(this.keyPair.privateKey, 'base64');
+    return `${data},${sign.sign(this.keyPair.privateKey, 'base64')}`;
   }
 
-  verify(data: string, signature: string) {
+  verify(signatureWithData: string) {
+    const [data, signature] = signatureWithData.split(',');
+    if (!signature) {
+      return false;
+    }
     const verify = createVerify('rsa-sha256');
     verify.update(data, 'utf-8');
     verify.end();
@@ -107,6 +112,20 @@ export class CryptoHelper {
 
   randomBytes(length = NONCE_LENGTH) {
     return randomBytes(length);
+  }
+
+  randomInt(min: number, max: number) {
+    return randomInt(min, max);
+  }
+
+  otp(length = 6) {
+    let otp = '';
+
+    for (let i = 0; i < length; i++) {
+      otp += this.randomInt(0, 9).toString();
+    }
+
+    return otp;
   }
 
   sha256(data: string) {

@@ -6,23 +6,22 @@ import {
   ResolveField,
   Resolver,
 } from '@nestjs/graphql';
-import { PrismaClient, WorkspaceMemberStatus } from '@prisma/client';
+import { WorkspaceMemberStatus } from '@prisma/client';
 import { nanoid } from 'nanoid';
 
 import {
+  ActionForbiddenOnNonTeamWorkspace,
   Cache,
-  EventEmitter,
-  type EventPayload,
+  EventBus,
   MemberNotFoundInSpace,
-  OnEvent,
   RequestMutex,
   TooManyRequest,
   URLHelper,
 } from '../../../base';
+import { Models } from '../../../models';
 import { CurrentUser } from '../../auth';
-import { Permission, PermissionService } from '../../permission';
-import { QuotaManagementService } from '../../quota';
-import { UserService } from '../../user';
+import { AccessController, WorkspaceRole } from '../../permission';
+import { QuotaService } from '../../quota';
 import {
   InviteLink,
   InviteResult,
@@ -42,12 +41,11 @@ export class TeamWorkspaceResolver {
 
   constructor(
     private readonly cache: Cache,
-    private readonly event: EventEmitter,
+    private readonly event: EventBus,
     private readonly url: URLHelper,
-    private readonly prisma: PrismaClient,
-    private readonly permissions: PermissionService,
-    private readonly users: UserService,
-    private readonly quota: QuotaManagementService,
+    private readonly ac: AccessController,
+    private readonly models: Models,
+    private readonly quota: QuotaService,
     private readonly mutex: RequestMutex,
     private readonly workspaceService: WorkspaceService
   ) {}
@@ -58,7 +56,7 @@ export class TeamWorkspaceResolver {
     complexity: 2,
   })
   team(@Parent() workspace: WorkspaceType) {
-    return this.quota.isTeamWorkspace(workspace.id);
+    return this.workspaceService.isTeamWorkspace(workspace.id);
   }
 
   @Mutation(() => [InviteResult])
@@ -68,62 +66,59 @@ export class TeamWorkspaceResolver {
     @Args({ name: 'emails', type: () => [String] }) emails: string[],
     @Args('sendInviteMail', { nullable: true }) sendInviteMail: boolean
   ) {
-    await this.permissions.checkWorkspace(
-      workspaceId,
-      user.id,
-      Permission.Admin
-    );
+    await this.ac
+      .user(user.id)
+      .workspace(workspaceId)
+      .assert('Workspace.Users.Manage');
 
     if (emails.length > 512) {
-      return new TooManyRequest();
+      throw new TooManyRequest();
     }
 
     // lock to prevent concurrent invite
     const lockFlag = `invite:${workspaceId}`;
     await using lock = await this.mutex.acquire(lockFlag);
     if (!lock) {
-      return new TooManyRequest();
+      throw new TooManyRequest();
     }
 
-    const quota = await this.quota.getWorkspaceUsage(workspaceId);
+    const quota = await this.quota.getWorkspaceSeatQuota(workspaceId);
 
     const results = [];
     for (const [idx, email] of emails.entries()) {
       const ret: InviteResult = { email, sentSuccess: false, inviteId: null };
       try {
-        let target = await this.users.findUserByEmail(email);
+        let target = await this.models.user.getUserByEmail(email);
         if (target) {
-          const originRecord =
-            await this.prisma.workspaceUserPermission.findFirst({
-              where: {
-                workspaceId,
-                userId: target.id,
-              },
-            });
+          const originRecord = await this.models.workspaceUser.get(
+            workspaceId,
+            target.id
+          );
           // only invite if the user is not already in the workspace
           if (originRecord) continue;
         } else {
-          target = await this.users.createUser({
+          target = await this.models.user.create({
             email,
             registered: false,
           });
         }
         const needMoreSeat = quota.memberCount + idx + 1 > quota.memberLimit;
 
-        ret.inviteId = await this.permissions.grant(
+        const role = await this.models.workspaceUser.set(
           workspaceId,
           target.id,
-          Permission.Write,
+          WorkspaceRole.Collaborator,
           needMoreSeat
             ? WorkspaceMemberStatus.NeedMoreSeat
             : WorkspaceMemberStatus.Pending
         );
+        ret.inviteId = role.id;
         // NOTE: we always send email even seat not enough
         // because at this moment we cannot know whether the seat increase charge was successful
         // after user click the invite link, we can check again and reject if charge failed
         if (sendInviteMail) {
           try {
-            await this.workspaceService.sendInviteMail(ret.inviteId);
+            await this.workspaceService.sendInviteEmail(ret.inviteId);
             ret.sentSuccess = true;
           } catch (e) {
             this.logger.warn(
@@ -156,11 +151,10 @@ export class TeamWorkspaceResolver {
     @Parent() workspace: WorkspaceType,
     @CurrentUser() user: CurrentUser
   ) {
-    await this.permissions.checkWorkspace(
-      workspace.id,
-      user.id,
-      Permission.Admin
-    );
+    await this.ac
+      .user(user.id)
+      .workspace(workspace.id)
+      .assert('Workspace.Users.Manage');
 
     const cacheId = `workspace:inviteLink:${workspace.id}`;
     const id = await this.cache.get<{ inviteId: string }>(cacheId);
@@ -183,11 +177,11 @@ export class TeamWorkspaceResolver {
     @Args('expireTime', { type: () => WorkspaceInviteLinkExpireTime })
     expireTime: WorkspaceInviteLinkExpireTime
   ): Promise<InviteLink> {
-    await this.permissions.checkWorkspace(
-      workspaceId,
-      user.id,
-      Permission.Admin
-    );
+    await this.ac
+      .user(user.id)
+      .workspace(workspaceId)
+      .assert('Workspace.Users.Manage');
+
     const cacheWorkspaceId = `workspace:inviteLink:${workspaceId}`;
     const invite = await this.cache.get<{ inviteId: string }>(cacheWorkspaceId);
     if (typeof invite?.inviteId === 'string') {
@@ -219,138 +213,80 @@ export class TeamWorkspaceResolver {
     @CurrentUser() user: CurrentUser,
     @Args('workspaceId') workspaceId: string
   ) {
-    await this.permissions.checkWorkspace(
-      workspaceId,
-      user.id,
-      Permission.Admin
-    );
+    await this.ac
+      .user(user.id)
+      .workspace(workspaceId)
+      .assert('Workspace.Users.Manage');
+
     const cacheId = `workspace:inviteLink:${workspaceId}`;
     return await this.cache.delete(cacheId);
   }
 
-  @Mutation(() => String)
+  @Mutation(() => Boolean)
   async approveMember(
     @CurrentUser() user: CurrentUser,
     @Args('workspaceId') workspaceId: string,
     @Args('userId') userId: string
   ) {
-    await this.permissions.checkWorkspace(
-      workspaceId,
-      user.id,
-      Permission.Admin
-    );
+    await this.ac
+      .user(user.id)
+      .workspace(workspaceId)
+      .assert('Workspace.Users.Manage');
 
-    try {
-      // lock to prevent concurrent invite and grant
-      const lockFlag = `invite:${workspaceId}`;
-      await using lock = await this.mutex.acquire(lockFlag);
-      if (!lock) {
-        return new TooManyRequest();
+    const role = await this.models.workspaceUser.get(workspaceId, userId);
+
+    if (role) {
+      if (role.status === WorkspaceMemberStatus.UnderReview) {
+        const result = await this.models.workspaceUser.setStatus(
+          workspaceId,
+          userId,
+          WorkspaceMemberStatus.Accepted
+        );
+
+        this.event.emit('workspace.members.requestApproved', {
+          inviteId: result.id,
+        });
       }
-
-      const status = await this.permissions.getWorkspaceMemberStatus(
-        workspaceId,
-        userId
-      );
-      if (status) {
-        if (status === WorkspaceMemberStatus.UnderReview) {
-          const result = await this.permissions.grant(
-            workspaceId,
-            userId,
-            Permission.Write,
-            WorkspaceMemberStatus.Accepted
-          );
-
-          if (result) {
-            this.event.emit('workspace.members.requestApproved', {
-              inviteId: result,
-            });
-          }
-          return result;
-        }
-        return new TooManyRequest();
-      } else {
-        return new MemberNotFoundInSpace({ spaceId: workspaceId });
-      }
-    } catch (e) {
-      this.logger.error('failed to invite user', e);
-      return new TooManyRequest();
+      return true;
+    } else {
+      throw new MemberNotFoundInSpace({ spaceId: workspaceId });
     }
   }
 
-  @Mutation(() => String)
+  @Mutation(() => Boolean)
   async grantMember(
     @CurrentUser() user: CurrentUser,
     @Args('workspaceId') workspaceId: string,
     @Args('userId') userId: string,
-    @Args('permission', { type: () => Permission }) permission: Permission
+    @Args('permission', { type: () => WorkspaceRole }) newRole: WorkspaceRole
   ) {
-    await this.permissions.checkWorkspace(
-      workspaceId,
-      user.id,
-      Permission.Owner
-    );
-
-    try {
-      // lock to prevent concurrent invite and grant
-      const lockFlag = `invite:${workspaceId}`;
-      await using lock = await this.mutex.acquire(lockFlag);
-      if (!lock) {
-        return new TooManyRequest();
-      }
-
-      const isMember = await this.permissions.isWorkspaceMember(
-        workspaceId,
-        userId
+    await this.ac
+      .user(user.id)
+      .workspace(workspaceId)
+      .assert(
+        newRole === WorkspaceRole.Owner
+          ? 'Workspace.TransferOwner'
+          : 'Workspace.Users.Manage'
       );
-      if (isMember) {
-        const result = await this.permissions.grant(
-          workspaceId,
-          userId,
-          permission
-        );
 
-        if (result) {
-          // TODO(@darkskygit): send team role changed mail
-        }
+    const role = await this.models.workspaceUser.get(workspaceId, userId);
 
-        return result;
-      } else {
-        return new MemberNotFoundInSpace({ spaceId: workspaceId });
-      }
-    } catch (e) {
-      this.logger.error('failed to invite user', e);
-      return new TooManyRequest();
+    if (!role) {
+      throw new MemberNotFoundInSpace({ spaceId: workspaceId });
     }
-  }
 
-  @OnEvent('workspace.members.reviewRequested')
-  async onReviewRequested({
-    inviteId,
-  }: EventPayload<'workspace.members.reviewRequested'>) {
-    // send review request mail to owner and admin
-    await this.workspaceService.sendReviewRequestedMail(inviteId);
-  }
+    if (newRole === WorkspaceRole.Owner) {
+      await this.models.workspaceUser.setOwner(workspaceId, userId);
+    } else {
+      // non-team workspace can only transfer ownership, but no detailed permission control
+      const isTeam = await this.workspaceService.isTeamWorkspace(workspaceId);
+      if (!isTeam) {
+        throw new ActionForbiddenOnNonTeamWorkspace();
+      }
 
-  @OnEvent('workspace.members.requestDeclined')
-  async onDeclineRequest({
-    userId,
-    workspaceId,
-  }: EventPayload<'workspace.members.requestDeclined'>) {
-    const user = await this.users.findUserById(userId);
-    const workspace = await this.workspaceService.getWorkspaceInfo(workspaceId);
-    // send decline mail
-    await this.workspaceService.sendReviewDeclinedEmail(
-      user?.email,
-      workspace.name
-    );
-  }
+      await this.models.workspaceUser.set(workspaceId, userId, newRole);
+    }
 
-  @OnEvent('workspace.members.requestApproved')
-  async onApproveRequest({
-    inviteId,
-  }: EventPayload<'workspace.members.requestApproved'>) {
-    // send approve mail
-    await this.workspaceService.sendReviewApproveEmail(inviteId);
+    return true;
   }
 }

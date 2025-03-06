@@ -55,7 +55,7 @@ export type PeekViewModalContainerProps = PropsWithChildren<{
   target?: HTMLElement;
   controls?: React.ReactNode;
   onAnimationStart?: () => void;
-  onAnimateEnd?: () => void;
+  onAnimationEnd?: () => void;
   mode?: PeekViewMode;
   animation?: PeekViewAnimation;
   testId?: string;
@@ -76,17 +76,15 @@ export const PeekViewModalContainer = forwardRef<
     controls,
     children,
     onAnimationStart,
-    onAnimateEnd,
-    animation = 'zoom',
+    onAnimationEnd,
+    animation = 'fadeBottom',
     mode = 'fit',
     dialogFrame = true,
   },
   ref
 ) {
   const [vtOpen, setVtOpen] = useState(open);
-  const [animeState, setAnimeState] = useState<'idle' | 'ready' | 'animating'>(
-    'idle'
-  );
+  const [animeState, setAnimeState] = useState<'idle' | 'animating'>('idle');
   const contentClipRef = useRef<HTMLDivElement>(null);
   const contentRef = useRef<HTMLDivElement>(null);
   const overlayRef = useRef<HTMLDivElement>(null);
@@ -143,6 +141,7 @@ export const PeekViewModalContainer = forwardRef<
         if (!contentClip || !content || !target || !overlay) {
           resolve();
           setAnimeState('idle');
+          onAnimationEnd?.();
           return;
         }
         const targets = contentClip;
@@ -196,6 +195,7 @@ export const PeekViewModalContainer = forwardRef<
           complete: (ins: AnimeInstance) => {
             paramsMap?.contentWrapper?.complete?.(ins);
             setAnimeState('idle');
+            onAnimationEnd?.();
             overlay.style.pointerEvents = '';
             if (zoomIn) {
               Object.assign(targets.style, {
@@ -238,6 +238,7 @@ export const PeekViewModalContainer = forwardRef<
    */
   const animateZoomIn = useCallback(() => {
     setAnimeState('animating');
+    onAnimationStart?.();
     setVtOpen(true);
     setTimeout(() => {
       zoomAnimate(true, {
@@ -257,9 +258,10 @@ export const PeekViewModalContainer = forwardRef<
       // controls delay: to make sure the time interval for animations of dialog and controls is 150ms.
       400 - 230 + 150
     );
-  }, [animateControls, zoomAnimate]);
+  }, [animateControls, onAnimationStart, zoomAnimate]);
   const animateZoomOut = useCallback(() => {
     setAnimeState('animating');
+    onAnimationStart?.();
     animateControls(false);
     zoomAnimate(false, {
       contentWrapper: {
@@ -275,33 +277,77 @@ export const PeekViewModalContainer = forwardRef<
     })
       .then(() => setVtOpen(false))
       .catch(console.error);
-  }, [animateControls, zoomAnimate]);
+  }, [animateControls, onAnimationStart, zoomAnimate]);
 
-  const animateFade = useCallback((animateIn: boolean) => {
-    setAnimeState('animating');
-    return new Promise<void>(resolve => {
-      if (animateIn) setVtOpen(true);
-      setTimeout(() => {
-        const overlay = overlayRef.current;
-        const contentClip = contentClipRef.current;
-        if (!overlay || !contentClip) {
-          resolve();
-          return;
-        }
-        anime({
-          targets: [overlay, contentClip],
-          opacity: animateIn ? [0, 1] : [1, 0],
-          easing: 'easeOutQuad',
-          duration: 230,
-          complete: () => {
-            if (!animateIn) setVtOpen(false);
-            setAnimeState('idle');
+  const animateFade = useCallback(
+    (animateIn: boolean) => {
+      setAnimeState('animating');
+      onAnimationStart?.();
+      return new Promise<void>(resolve => {
+        if (animateIn) setVtOpen(true);
+        setTimeout(() => {
+          const overlay = overlayRef.current;
+          const contentClip = contentClipRef.current;
+          if (!overlay || !contentClip) {
             resolve();
-          },
+            return;
+          }
+          anime({
+            targets: [overlay, contentClip],
+            opacity: animateIn ? [0, 1] : [1, 0],
+            easing: 'easeOutQuad',
+            duration: 230,
+            complete: () => {
+              if (!animateIn) setVtOpen(false);
+              setAnimeState('idle');
+              onAnimationEnd?.();
+              resolve();
+            },
+          });
         });
       });
-    });
-  }, []);
+    },
+    [onAnimationEnd, onAnimationStart]
+  );
+
+  const animateFadeBottom = useCallback(
+    (animateIn: boolean) => {
+      setAnimeState('animating');
+      return new Promise<void>(resolve => {
+        if (animateIn) setVtOpen(true);
+        setTimeout(() => {
+          const overlay = overlayRef.current;
+          const contentClip = contentClipRef.current;
+          if (!overlay || !contentClip) {
+            resolve();
+            return;
+          }
+
+          anime({
+            targets: [overlay],
+            opacity: animateIn ? [0, 1] : [1, 0],
+            easing: 'easeOutQuad',
+            duration: 230,
+          });
+          anime({
+            targets: [contentClip],
+            opacity: animateIn ? [0, 1] : [1, 0],
+            y: animateIn ? ['-2%', '0%'] : ['0%', '-2%'],
+            scale: animateIn ? [0.96, 1] : [1, 0.96],
+            easing: 'cubicBezier(0.42, 0, 0.58, 1)',
+            duration: 230,
+            complete: () => {
+              if (!animateIn) setVtOpen(false);
+              setAnimeState('idle');
+              onAnimationEnd?.();
+              resolve();
+            },
+          });
+        });
+      });
+    },
+    [onAnimationEnd]
+  );
 
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
@@ -318,12 +364,22 @@ export const PeekViewModalContainer = forwardRef<
   useLayoutEffect(() => {
     if (animation === 'zoom') {
       open ? animateZoomIn() : animateZoomOut();
+    } else if (animation === 'fadeBottom') {
+      animateFadeBottom(open).catch(console.error);
     } else if (animation === 'fade') {
       animateFade(open).catch(console.error);
     } else if (animation === 'none') {
       setVtOpen(open);
     }
-  }, [animateZoomOut, animation, open, target, animateZoomIn, animateFade]);
+  }, [
+    animateZoomOut,
+    animation,
+    open,
+    target,
+    animateZoomIn,
+    animateFade,
+    animateFadeBottom,
+  ]);
 
   return (
     <PeekViewContext.Provider value={emptyContext}>
@@ -332,8 +388,6 @@ export const PeekViewModalContainer = forwardRef<
           <PeekViewModalOverlay
             ref={overlayRef}
             className={styles.modalOverlay}
-            onAnimationStart={onAnimationStart}
-            onAnimationEnd={onAnimateEnd}
             data-anime-state={animeState}
           />
           <div
@@ -353,6 +407,8 @@ export const PeekViewModalContainer = forwardRef<
               <div className={styles.modalContentClip}>
                 <Dialog.Content
                   {...contentOptions}
+                  // mute the radix-ui warning
+                  aria-describedby={undefined}
                   className={clsx({
                     [styles.modalContent]: true,
                     [styles.dialog]: dialogFrame,

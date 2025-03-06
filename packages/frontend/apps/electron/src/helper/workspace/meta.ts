@@ -1,10 +1,8 @@
 import path from 'node:path';
 
-import type { SpaceType } from '@affine/nbstore';
-import fs from 'fs-extra';
+import { type SpaceType } from '@affine/nbstore';
 
 import { isWindows } from '../../shared/utils';
-import { logger } from '../logger';
 import { mainRPC } from '../main-rpc';
 import type { WorkspaceMeta } from '../type';
 
@@ -44,8 +42,9 @@ export function escapeFilename(name: string) {
   // replace all special characters with '_' and replace repeated '_' with a single '_' and remove trailing '_'
   return name
     .replaceAll(/[\\/!@#$%^&*()+~`"':;,?<>|]/g, '_')
-    .replaceAll(/_+/g, '_')
-    .replace(/_+$/, '');
+    .split('_')
+    .filter(Boolean)
+    .join('_');
 }
 
 export async function getSpaceDBPath(
@@ -93,31 +92,10 @@ export async function getWorkspaceMeta(
   spaceType: SpaceType,
   workspaceId: string
 ): Promise<WorkspaceMeta> {
-  try {
-    const basePath = await getWorkspaceBasePathV1(spaceType, workspaceId);
-    const metaPath = await getWorkspaceMetaPath(spaceType, workspaceId);
-    if (
-      !(await fs
-        .access(metaPath)
-        .then(() => true)
-        .catch(() => false))
-    ) {
-      await fs.ensureDir(basePath);
-      const dbPath = await getWorkspaceDBPath(spaceType, workspaceId);
-      // create one if not exists
-      const meta = {
-        id: workspaceId,
-        mainDBPath: dbPath,
-        type: spaceType,
-      };
-      await fs.writeJSON(metaPath, meta);
-      return meta;
-    } else {
-      const meta = await fs.readJSON(metaPath);
-      return meta;
-    }
-  } catch (err) {
-    logger.error('getWorkspaceMeta failed', err);
-    throw err;
-  }
+  const dbPath = await getWorkspaceDBPath(spaceType, workspaceId);
+
+  return {
+    mainDBPath: dbPath,
+    id: workspaceId,
+  };
 }

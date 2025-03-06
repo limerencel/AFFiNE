@@ -1,4 +1,3 @@
-/* eslint-disable unicorn/prefer-dom-node-dataset */
 import { test } from '@affine-test/kit/playwright';
 import {
   openHomePage,
@@ -28,6 +27,8 @@ import {
   togglePropertyListVisibility,
 } from '@affine-test/kit/utils/properties';
 import { expect } from '@playwright/test';
+
+import { addColumn } from './blocksuite/database/utils';
 
 test.beforeEach(async ({ page }) => {
   await openHomePage(page);
@@ -126,6 +127,7 @@ test('property table reordering', async ({ page }) => {
     'Tags',
     'Doc mode',
     'Journal',
+    'Template',
     'Created',
     'Updated',
     'Created by',
@@ -171,6 +173,7 @@ test('page info show more will show all properties', async ({ page }) => {
     'Tags',
     'Doc mode',
     'Journal',
+    'Template',
     'Created',
     'Updated',
     'Created by',
@@ -297,6 +300,7 @@ test('can show database backlink info', async ({ page }) => {
 
   const databaseTitle = 'some database title';
   await addDatabase(page, databaseTitle);
+  await addColumn(page, 'select', 2);
 
   await expect(page.locator('affine-database-title')).toContainText(
     databaseTitle

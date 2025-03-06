@@ -2,10 +2,10 @@ import { app, Menu } from 'electron';
 
 import { isMacOS } from '../../shared/utils';
 import { logger, revealLogFile } from '../logger';
+import { uiSubjects } from '../ui/subject';
 import { checkForUpdates } from '../updater';
 import {
   addTab,
-  closeTab,
   initAndShowMainWindow,
   reloadView,
   showDevTools,
@@ -15,6 +15,7 @@ import {
   switchToPreviousTab,
   undoCloseTab,
 } from '../windows-manager';
+import { WorkerManager } from '../worker/pool';
 import { applicationMenuSubjects } from './subject';
 
 // Unique id for menuitems
@@ -63,7 +64,7 @@ export function createApplicationMenu() {
           click: async () => {
             await initAndShowMainWindow();
             // fixme: if the window is just created, the new page action will not be triggered
-            applicationMenuSubjects.newPageAction$.next();
+            applicationMenuSubjects.newPageAction$.next('page');
           },
         },
       ],
@@ -104,10 +105,28 @@ export function createApplicationMenu() {
           },
         },
         {
+          role: 'windowMenu',
+        },
+        {
           label: 'Open devtools',
           accelerator: isMac ? 'Cmd+Option+I' : 'Ctrl+Shift+I',
           click: () => {
             showDevTools();
+          },
+        },
+        {
+          label: 'Open worker devtools',
+          click: () => {
+            Menu.buildFromTemplate(
+              Array.from(WorkerManager.instance.workers.values()).map(item => ({
+                label: `${item.key}`,
+                click: () => {
+                  item.browserWindow.webContents.openDevTools({
+                    mode: 'undocked',
+                  });
+                },
+              }))
+            ).popup();
           },
         },
         { type: 'separator' },
@@ -129,11 +148,12 @@ export function createApplicationMenu() {
           },
         },
         {
-          label: 'Close tab',
+          label: 'Close view',
           accelerator: 'CommandOrControl+W',
           click() {
-            logger.info('Close tab with shortcut');
-            closeTab().catch(console.error);
+            logger.info('Close view with shortcut');
+            // tell the active workbench to close the current view
+            uiSubjects.onCloseView$.next();
           },
         },
         {
@@ -195,7 +215,7 @@ export function createApplicationMenu() {
         {
           label: 'Learn More',
           click: async () => {
-            // eslint-disable-next-line @typescript-eslint/no-var-requires
+            // oxlint-disable-next-line no-var-requires
             const { shell } = require('electron');
             await shell.openExternal('https://affine.pro/');
           },
@@ -216,7 +236,7 @@ export function createApplicationMenu() {
         {
           label: 'Documentation',
           click: async () => {
-            // eslint-disable-next-line @typescript-eslint/no-var-requires
+            // oxlint-disable-next-line no-var-requires
             const { shell } = require('electron');
             await shell.openExternal(
               'https://docs.affine.pro/docs/hello-bonjour-aloha-你好'

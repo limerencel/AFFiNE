@@ -7,15 +7,16 @@ import {
 } from '@affine/component';
 import { useAsyncCallback } from '@affine/core/components/hooks/affine-async-hooks';
 import { WorkspaceDialogService } from '@affine/core/modules/dialogs';
+import { DocsService } from '@affine/core/modules/doc';
 import { DocDisplayMetaService } from '@affine/core/modules/doc-display-meta';
 import { DocsSearchService } from '@affine/core/modules/docs-search';
+import { FeatureFlagService } from '@affine/core/modules/feature-flag';
+import { GlobalContextService } from '@affine/core/modules/global-context';
+import { GuardService } from '@affine/core/modules/permissions';
 import type { AffineDNDData } from '@affine/core/types/dnd';
 import { useI18n } from '@affine/i18n';
 import { track } from '@affine/track';
 import {
-  DocsService,
-  FeatureFlagService,
-  GlobalContextService,
   LiveData,
   useLiveData,
   useService,
@@ -50,12 +51,14 @@ export const ExplorerDocNode = ({
     globalContextService,
     docDisplayMetaService,
     featureFlagService,
+    guardService,
   } = useServices({
     DocsSearchService,
     DocsService,
     GlobalContextService,
     DocDisplayMetaService,
     FeatureFlagService,
+    GuardService,
   });
 
   const active =
@@ -134,9 +137,17 @@ export const ExplorerDocNode = ({
     async (data: DropTargetDropEvent<AffineDNDData>) => {
       if (data.treeInstruction?.type === 'make-child') {
         if (data.source.data.entity?.type === 'doc') {
+          const canEdit = await guardService.can('Doc_Update', docId);
+          if (!canEdit) {
+            toast(t['com.affine.no-permission']());
+            return;
+          }
           await docsService.addLinkedDoc(docId, data.source.data.entity.id);
           track.$.navigationPanel.docs.linkDoc({
             control: 'drag',
+          });
+          track.$.navigationPanel.docs.drop({
+            type: data.source.data.entity.type,
           });
         } else {
           toast(t['com.affine.rootAppSidebar.doc.link-doc-only']());
@@ -145,7 +156,7 @@ export const ExplorerDocNode = ({
         onDrop?.(data);
       }
     },
-    [docId, docsService, onDrop, t]
+    [docId, docsService, guardService, onDrop, t]
   );
 
   const handleDropEffectOnDoc = useCallback<ExplorerTreeNodeDropEffect>(
@@ -165,16 +176,24 @@ export const ExplorerDocNode = ({
   const handleDropOnPlaceholder = useAsyncCallback(
     async (data: DropTargetDropEvent<AffineDNDData>) => {
       if (data.source.data.entity?.type === 'doc') {
+        const canEdit = await guardService.can('Doc_Update', docId);
+        if (!canEdit) {
+          toast(t['com.affine.no-permission']());
+          return;
+        }
         // TODO(eyhn): timeout&error handling
         await docsService.addLinkedDoc(docId, data.source.data.entity.id);
         track.$.navigationPanel.docs.linkDoc({
           control: 'drag',
         });
+        track.$.navigationPanel.docs.drop({
+          type: data.source.data.entity.type,
+        });
       } else {
         toast(t['com.affine.rootAppSidebar.doc.link-doc-only']());
       }
     },
-    [docId, docsService, t]
+    [docId, docsService, guardService, t]
   );
 
   const handleCanDrop = useMemo<DropTargetOptions<AffineDNDData>['canDrop']>(
@@ -236,6 +255,10 @@ export const ExplorerDocNode = ({
         )
       }
       reorderable={reorderable}
+      renameableGuard={{
+        docId,
+        action: 'Doc_Update',
+      }}
       onRename={handleRename}
       childrenPlaceholder={
         searching ? null : <Empty onDrop={handleDropOnPlaceholder} />

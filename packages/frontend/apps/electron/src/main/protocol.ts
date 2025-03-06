@@ -3,8 +3,8 @@ import { join } from 'node:path';
 import { net, protocol, session } from 'electron';
 import cookieParser from 'set-cookie-parser';
 
+import { resourcesPath } from '../shared/utils';
 import { logger } from './logger';
-import { isOfflineModeEnabled } from './utils';
 
 protocol.registerSchemesAsPrivileged([
   {
@@ -34,17 +34,26 @@ protocol.registerSchemesAsPrivileged([
 ]);
 
 const NETWORK_REQUESTS = ['/api', '/ws', '/socket.io', '/graphql'];
-const webStaticDir = join(__dirname, '../resources/web-static');
+const webStaticDir = join(resourcesPath, 'web-static');
 
 function isNetworkResource(pathname: string) {
   return NETWORK_REQUESTS.some(opt => pathname.startsWith(opt));
 }
 
 async function handleFileRequest(request: Request) {
+  const urlObject = new URL(request.url);
+
+  // Redirect to webpack dev server if defined
+  if (process.env.DEV_SERVER_URL) {
+    const devServerUrl = new URL(
+      urlObject.pathname,
+      process.env.DEV_SERVER_URL
+    );
+    return net.fetch(devServerUrl.toString(), request);
+  }
   const clonedRequest = Object.assign(request.clone(), {
     bypassCustomProtocolHandlers: true,
   });
-  const urlObject = new URL(request.url);
   // this will be file types (in the web-static folder)
   let filepath = '';
   // if is a file type, load the file in resources
@@ -132,36 +141,6 @@ export function registerProtocol() {
   session.defaultSession.webRequest.onBeforeSendHeaders((details, callback) => {
     const url = new URL(details.url);
     const pathname = url.pathname;
-    const protocol = url.protocol;
-    const origin = url.origin;
-
-    // offline whitelist
-    // 1. do not block non-api request for http://localhost || file:// (local dev assets)
-    // 2. do not block devtools
-    // 3. block all other requests
-    const blocked = (() => {
-      if (!isOfflineModeEnabled()) {
-        return false;
-      }
-      if (
-        (protocol === 'file:' || origin.startsWith('http://localhost')) &&
-        !isNetworkResource(pathname)
-      ) {
-        return false;
-      }
-      if ('devtools:' === protocol) {
-        return false;
-      }
-      return true;
-    })();
-
-    if (blocked) {
-      logger.debug('blocked request', details.url);
-      callback({
-        cancel: true,
-      });
-      return;
-    }
 
     (async () => {
       // session cookies are set to file:// on production
@@ -181,6 +160,12 @@ export function registerProtocol() {
           .join('; ');
         delete details.requestHeaders['cookie'];
         details.requestHeaders['Cookie'] = cookieString;
+
+        // mitigate the issue of the worker not being able to access the origin
+        if (isNetworkResource(pathname)) {
+          details.requestHeaders['origin'] = url.origin;
+          details.requestHeaders['referer'] = url.origin;
+        }
       }
     })()
       .catch(err => {

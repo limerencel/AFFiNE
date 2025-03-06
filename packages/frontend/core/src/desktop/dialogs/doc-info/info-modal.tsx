@@ -5,24 +5,22 @@ import {
   PropertyCollapsibleContent,
   PropertyCollapsibleSection,
 } from '@affine/component';
+import { BacklinkGroups } from '@affine/core/blocksuite/block-suite-editor/bi-directional-link-panel';
 import { CreatePropertyMenuItems } from '@affine/core/components/doc-properties/menu/create-doc-property';
 import { DocPropertyRow } from '@affine/core/components/doc-properties/table';
+import type { DocCustomPropertyInfo } from '@affine/core/modules/db';
+import { DocsService } from '@affine/core/modules/doc';
 import { DocDatabaseBacklinkInfo } from '@affine/core/modules/doc-info';
 import type {
   DatabaseRow,
   DatabaseValueCell,
 } from '@affine/core/modules/doc-info/types';
 import { DocsSearchService } from '@affine/core/modules/docs-search';
+import { GuardService } from '@affine/core/modules/permissions';
 import { useI18n } from '@affine/i18n';
 import track from '@affine/track';
 import { PlusIcon } from '@blocksuite/icons/rc';
-import {
-  type DocCustomPropertyInfo,
-  DocsService,
-  LiveData,
-  useLiveData,
-  useServices,
-} from '@toeverything/infra';
+import { LiveData, useLiveData, useServices } from '@toeverything/infra';
 import { useCallback, useMemo, useState } from 'react';
 
 import * as styles from './info-modal.css';
@@ -36,10 +34,15 @@ export const InfoTable = ({
   onClose: () => void;
 }) => {
   const t = useI18n();
-  const { docsSearchService, docsService } = useServices({
+  const { docsSearchService, docsService, guardService } = useServices({
     DocsSearchService,
     DocsService,
+    GuardService,
   });
+  const canEditPropertyInfo = useLiveData(
+    guardService.can$('Workspace_Properties_Update')
+  );
+  const canEditProperty = useLiveData(guardService.can$('Doc_Update', docId));
   const [newPropertyId, setNewPropertyId] = useState<string | null>(null);
   const properties = useLiveData(docsService.propertyList.sortedProperties$);
   const links = useLiveData(
@@ -93,6 +96,20 @@ export const InfoTable = ({
     []
   );
 
+  const onPropertyInfoChange = useCallback(
+    (
+      property: DocCustomPropertyInfo,
+      field: keyof DocCustomPropertyInfo,
+      _value: string
+    ) => {
+      track.$.docInfoPanel.property.editPropertyMeta({
+        type: property.type,
+        field,
+      });
+    },
+    []
+  );
+
   return (
     <>
       <PropertyCollapsibleSection
@@ -122,26 +139,42 @@ export const InfoTable = ({
             <DocPropertyRow
               key={property.id}
               propertyInfo={property}
+              readonly={!canEditProperty}
+              propertyInfoReadonly={!canEditPropertyInfo}
               defaultOpenEditMenu={newPropertyId === property.id}
               onChange={value => onPropertyChange(property, value)}
+              onPropertyInfoChange={(...args) =>
+                onPropertyInfoChange(property, ...args)
+              }
             />
           ))}
-          <Menu
-            items={<CreatePropertyMenuItems onCreated={onPropertyAdded} />}
-            contentOptions={{
-              onClick(e) {
-                e.stopPropagation();
-              },
-            }}
-          >
+          {!canEditPropertyInfo ? (
             <Button
+              disabled
               variant="plain"
               prefix={<PlusIcon />}
               className={styles.addPropertyButton}
             >
               {t['com.affine.page-properties.add-property']()}
             </Button>
-          </Menu>
+          ) : (
+            <Menu
+              items={<CreatePropertyMenuItems onCreated={onPropertyAdded} />}
+              contentOptions={{
+                onClick(e) {
+                  e.stopPropagation();
+                },
+              }}
+            >
+              <Button
+                variant="plain"
+                prefix={<PlusIcon />}
+                className={styles.addPropertyButton}
+              >
+                {t['com.affine.page-properties.add-property']()}
+              </Button>
+            </Menu>
+          )}
         </PropertyCollapsibleContent>
       </PropertyCollapsibleSection>
       <Divider size="thinner" />
@@ -149,7 +182,8 @@ export const InfoTable = ({
       {backlinks && backlinks.length > 0 ? (
         <>
           <LinksRow
-            references={backlinks}
+            count={backlinks.length}
+            references={<BacklinkGroups />}
             onClick={onClose}
             label={t['com.affine.page-properties.backlinks']()}
           />
@@ -159,6 +193,7 @@ export const InfoTable = ({
       {links && links.length > 0 ? (
         <>
           <LinksRow
+            count={links.length}
             references={links}
             onClick={onClose}
             label={t['com.affine.page-properties.outgoing-links']()}

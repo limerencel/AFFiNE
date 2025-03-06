@@ -1,17 +1,16 @@
 import { MenuItem, MenuSeparator, MobileMenuSub } from '@affine/component';
 import { sortPagesByDate } from '@affine/core/desktop/pages/workspace/detail-page/tabs/journal';
+import {
+  type DocRecord,
+  DocService,
+  DocsService,
+} from '@affine/core/modules/doc';
 import { DocDisplayMetaService } from '@affine/core/modules/doc-display-meta';
 import { JournalService } from '@affine/core/modules/journal';
 import { WorkbenchLink } from '@affine/core/modules/workbench';
 import { useI18n } from '@affine/i18n';
 import { HistoryIcon } from '@blocksuite/icons/rc';
-import type { DocRecord } from '@toeverything/infra';
-import {
-  DocService,
-  DocsService,
-  useLiveData,
-  useService,
-} from '@toeverything/infra';
+import { useLiveData, useService } from '@toeverything/infra';
 import dayjs from 'dayjs';
 import { type ReactNode, useCallback, useMemo } from 'react';
 
@@ -24,13 +23,9 @@ interface JournalTodayActivityMenuItemProps {
 type Category = 'created' | 'updated';
 
 const DocItem = ({ docId }: { docId: string }) => {
-  const i18n = useI18n();
   const docDisplayMetaService = useService(DocDisplayMetaService);
-  const Icon = useLiveData(
-    docDisplayMetaService.icon$(docId, { compareDate: new Date() })
-  );
-  const titleMeta = useLiveData(docDisplayMetaService.title$(docId));
-  const title = i18n.t(titleMeta);
+  const Icon = useLiveData(docDisplayMetaService.icon$(docId));
+  const title = useLiveData(docDisplayMetaService.title$(docId));
   return (
     <WorkbenchLink aria-label={title} to={`/${docId}`}>
       <MenuItem prefixIcon={<Icon />}>{title}</MenuItem>

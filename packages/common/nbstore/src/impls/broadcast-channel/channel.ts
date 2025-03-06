@@ -1,10 +1,13 @@
-import { Connection } from '../../connection';
-import type { StorageOptions } from '../../storage';
+import { AutoReconnectConnection } from '../../connection';
 
-export class BroadcastChannelConnection extends Connection<BroadcastChannel> {
-  readonly channelName = `channel:${this.opts.peer}:${this.opts.type}:${this.opts.id}`;
+export interface BroadcastChannelConnectionOptions {
+  id: string;
+}
 
-  constructor(private readonly opts: StorageOptions) {
+export class BroadcastChannelConnection extends AutoReconnectConnection<BroadcastChannel> {
+  readonly channelName = `channel:${this.opts.id}`;
+
+  constructor(private readonly opts: BroadcastChannelConnectionOptions) {
     super();
   }
 
@@ -12,12 +15,7 @@ export class BroadcastChannelConnection extends Connection<BroadcastChannel> {
     return new BroadcastChannel(this.channelName);
   }
 
-  override doDisconnect() {
-    this.close();
-  }
-
-  private close(error?: Error) {
-    this.maybeConnection?.close();
-    this.setStatus('closed', error);
+  override doDisconnect(channel: BroadcastChannel) {
+    channel.close();
   }
 }
