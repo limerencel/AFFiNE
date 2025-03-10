@@ -1,8 +1,10 @@
 import { Button } from '@affine/component';
 import {
+  AuthContainer,
   AuthContent,
+  AuthFooter,
+  AuthHeader,
   AuthInput,
-  ModalHeader,
 } from '@affine/component/auth-components';
 import { useAsyncCallback } from '@affine/core/components/hooks/affine-async-hooks';
 import { ServersService } from '@affine/core/modules/cloud';
@@ -18,6 +20,7 @@ import {
 } from 'react';
 
 import type { SignInState } from '.';
+import { Back } from './back';
 import * as styles from './style.css';
 
 function normalizeURL(url: string) {
@@ -78,13 +81,18 @@ export const AddSelfhostedStep = ({
         ...prev,
         initialServerBaseUrl: undefined,
       }));
-      onConnect();
+      if (serversService.getServerByBaseUrl(state.initialServerBaseUrl)) {
+        onConnect();
+      }
     }
-  }, [changeState, onConnect, state]);
+  }, [changeState, onConnect, serversService, state]);
 
   return (
-    <>
-      <ModalHeader title={t['com.affine.auth.sign.add-selfhosted']()} />
+    <AuthContainer>
+      <AuthHeader
+        title={t['com.affine.auth.sign.add-selfhosted.title']()}
+        subTitle={t['com.affine.auth.sign.add-selfhosted']()}
+      />
       <AuthContent>
         <AuthInput
           label={t['com.affine.auth.sign.add-selfhosted.baseurl']()}
@@ -107,6 +115,8 @@ export const AddSelfhostedStep = ({
         >
           {t['com.affine.auth.sign.add-selfhosted.connect-button']()}
         </Button>
+      </AuthContent>
+      <AuthFooter>
         <div className={styles.authMessage}>
           <Trans
             i18nKey="com.affine.auth.sign.add-selfhosted.description"
@@ -121,7 +131,8 @@ export const AddSelfhostedStep = ({
             }}
           />
         </div>
-      </AuthContent>
-    </>
+        <Back changeState={changeState} />
+      </AuthFooter>
+    </AuthContainer>
   );
 };

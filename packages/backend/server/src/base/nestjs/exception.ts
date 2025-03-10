@@ -1,3 +1,4 @@
+import { ApolloServerErrorCode } from '@apollo/server/errors';
 import {
   ArgumentsHost,
   Catch,
@@ -9,24 +10,54 @@ import { GqlContextType } from '@nestjs/graphql';
 import { ThrottlerException } from '@nestjs/throttler';
 import { BaseWsExceptionFilter } from '@nestjs/websockets';
 import { Response } from 'express';
+import { GraphQLError } from 'graphql';
 import { of } from 'rxjs';
 import { Socket } from 'socket.io';
+import { ZodError } from 'zod';
 
 import {
+  GraphqlBadRequest,
   InternalServerError,
   NotFound,
   TooManyRequest,
   UserFriendlyError,
+  ValidationError,
 } from '../error';
 import { metrics } from '../metrics';
+import { getRequestIdFromHost } from '../utils';
+
+function isGraphQLBadRequest(error: any): error is GraphQLError {
+  // https://www.apollographql.com/docs/apollo-server/data/errors
+  const code = error.extensions?.code;
+  return (
+    code === ApolloServerErrorCode.GRAPHQL_PARSE_FAILED ||
+    code === ApolloServerErrorCode.GRAPHQL_VALIDATION_FAILED ||
+    code === ApolloServerErrorCode.BAD_USER_INPUT ||
+    code === ApolloServerErrorCode.BAD_REQUEST
+  );
+}
 
 export function mapAnyError(error: any): UserFriendlyError {
+  if (error instanceof GraphQLError) {
+    const err = error;
+    if (isGraphQLBadRequest(error)) {
+      return new GraphqlBadRequest({
+        code: err.extensions.code as string,
+        message: err.message,
+      });
+    }
+    error = err.originalError ?? error;
+  }
   if (error instanceof UserFriendlyError) {
     return error;
   } else if (error instanceof ThrottlerException) {
     return new TooManyRequest();
   } else if (error instanceof NotFoundException) {
     return new NotFound();
+  } else if (error instanceof ZodError) {
+    return new ValidationError({
+      errors: error.message,
+    });
   } else {
     const e = new InternalServerError();
     e.cause = error;
@@ -45,7 +76,9 @@ export class GlobalExceptionFilter extends BaseExceptionFilter {
       // see '../graphql/logger-plugin.ts'
       throw error;
     } else {
-      error.log('HTTP');
+      error.log('HTTP', {
+        requestId: error.requestId ?? getRequestIdFromHost(host),
+      });
       metrics.controllers
         .counter('error')
         .add(1, { status: error.status, type: error.type, error: error.name });
@@ -95,6 +128,7 @@ function toWebsocketError(error: UserFriendlyError) {
     name: error.name.toUpperCase(),
     message: error.message,
     data: error.data,
+    requestId: error.requestId,
   };
 }
 
@@ -130,9 +164,9 @@ export const GatewayErrorWrapper = (event: string): MethodDecorator => {
   };
 };
 
-export function mapSseError(originalError: any) {
+export function mapSseError(originalError: any, info: object) {
   const error = mapAnyError(originalError);
-  error.log('Sse');
+  error.log('Sse', info);
   metrics.sse.counter('error').add(1, { status: error.status });
   return of({
     type: 'error' as const,

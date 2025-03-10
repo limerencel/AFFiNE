@@ -5,6 +5,10 @@ import type {
   WORKSPACE_DIALOG_SCHEMA,
 } from '@affine/core/modules/dialogs';
 import { UrlService } from '@affine/core/modules/url';
+import {
+  getAFFiNEWorkspaceSchema,
+  WorkspaceService,
+} from '@affine/core/modules/workspace';
 import { DebugLogger } from '@affine/debug';
 import { useI18n } from '@affine/i18n';
 import track from '@affine/track';
@@ -12,10 +16,10 @@ import {
   HtmlTransformer,
   MarkdownTransformer,
   NotionHtmlTransformer,
-  openFileOrFiles,
   ZipTransformer,
-} from '@blocksuite/affine/blocks';
-import type { DocCollection } from '@blocksuite/affine/store';
+} from '@blocksuite/affine/blocks/root';
+import { openFileOrFiles } from '@blocksuite/affine/shared/utils';
+import type { Workspace } from '@blocksuite/affine/store';
 import {
   ExportToHtmlIcon,
   ExportToMarkdownIcon,
@@ -24,7 +28,7 @@ import {
   PageIcon,
   ZipIcon,
 } from '@blocksuite/icons/rc';
-import { useService, WorkspaceService } from '@toeverything/infra';
+import { useService } from '@toeverything/infra';
 import { cssVar } from '@toeverything/theme';
 import { cssVarV2 } from '@toeverything/theme/v2';
 import {
@@ -50,12 +54,12 @@ type ImportResult = {
 type ImportConfig = {
   fileOptions: { acceptType: AcceptType; multiple: boolean };
   importFunction: (
-    docCollection: DocCollection,
+    docCollection: Workspace,
     file: File | File[]
   ) => Promise<ImportResult>;
 };
 
-const DISCORD_URL = 'https://discord.gg/whd5mjYqVw';
+const DISCORD_URL = 'https://discord.gg/Yjf5VFEn';
 
 const importOptions = [
   {
@@ -118,6 +122,10 @@ const importOptions = [
     prefixIcon: (
       <PageIcon color={cssVarV2('icon/primary')} width={20} height={20} />
     ),
+    suffixIcon: (
+      <HelpIcon color={cssVarV2('icon/primary')} width={20} height={20} />
+    ),
+    suffixTooltip: 'com.affine.import.snapshot.tooltip',
     testId: 'editor-option-menu-import-snapshot',
     type: 'snapshot' as ImportType,
   },
@@ -136,6 +144,7 @@ const importConfigs: Record<ImportType, ImportConfig> = {
         const fileName = file.name.split('.').slice(0, -1).join('.');
         const docId = await MarkdownTransformer.importMarkdownToDoc({
           collection: docCollection,
+          schema: getAFFiNEWorkspaceSchema(),
           markdown: text,
           fileName,
         });
@@ -154,6 +163,7 @@ const importConfigs: Record<ImportType, ImportConfig> = {
       }
       const docIds = await MarkdownTransformer.importMarkdownZip({
         collection: docCollection,
+        schema: getAFFiNEWorkspaceSchema(),
         imported: file,
       });
       return {
@@ -173,6 +183,7 @@ const importConfigs: Record<ImportType, ImportConfig> = {
         const fileName = file.name.split('.').slice(0, -1).join('.');
         const docId = await HtmlTransformer.importHTMLToDoc({
           collection: docCollection,
+          schema: getAFFiNEWorkspaceSchema(),
           html: text,
           fileName,
         });
@@ -192,6 +203,7 @@ const importConfigs: Record<ImportType, ImportConfig> = {
       const { entryId, pageIds, isWorkspaceFile } =
         await NotionHtmlTransformer.importNotionZip({
           collection: docCollection,
+          schema: getAFFiNEWorkspaceSchema(),
           imported: file,
         });
       return {
@@ -207,7 +219,13 @@ const importConfigs: Record<ImportType, ImportConfig> = {
       if (Array.isArray(file)) {
         throw new Error('Expected a single zip file for snapshot import');
       }
-      const docIds = (await ZipTransformer.importDocs(docCollection, file))
+      const docIds = (
+        await ZipTransformer.importDocs(
+          docCollection,
+          getAFFiNEWorkspaceSchema(),
+          file
+        )
+      )
         .filter(doc => doc !== undefined)
         .map(doc => doc.id);
 
@@ -287,7 +305,7 @@ const ImportOptions = ({
         {t['com.affine.import.modal.tip']()}{' '}
         <a
           className={style.link}
-          href="https://discord.gg/whd5mjYqVw"
+          href="https://discord.gg/Yjf5VFEn"
           target="_blank"
           rel="noreferrer"
         >

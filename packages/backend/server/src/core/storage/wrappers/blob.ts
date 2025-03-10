@@ -4,15 +4,28 @@ import { PrismaClient } from '@prisma/client';
 import {
   autoMetadata,
   Config,
-  EventEmitter,
-  type EventPayload,
+  EventBus,
   type GetObjectMetadata,
   ListObjectsMetadata,
   OnEvent,
   PutObjectMetadata,
   type StorageProvider,
   StorageProviderFactory,
+  URLHelper,
 } from '../../../base';
+
+declare global {
+  interface Events {
+    'workspace.blob.sync': {
+      workspaceId: string;
+      key: string;
+    };
+    'workspace.blob.delete': {
+      workspaceId: string;
+      key: string;
+    };
+  }
+}
 
 @Injectable()
 export class WorkspaceBlobStorage {
@@ -21,9 +34,10 @@ export class WorkspaceBlobStorage {
 
   constructor(
     private readonly config: Config,
-    private readonly event: EventEmitter,
+    private readonly event: EventBus,
     private readonly storageFactory: StorageProviderFactory,
-    private readonly db: PrismaClient
+    private readonly db: PrismaClient,
+    private readonly url: URLHelper
   ) {
     this.provider = this.storageFactory.create(this.config.storages.blob);
   }
@@ -32,7 +46,7 @@ export class WorkspaceBlobStorage {
     const meta: PutObjectMetadata = autoMetadata(blob);
 
     await this.provider.put(`${workspaceId}/${key}`, blob, meta);
-    this.trySyncBlobMeta(workspaceId, key, {
+    await this.upsert(workspaceId, key, {
       contentType: meta.contentType ?? 'application/octet-stream',
       contentLength: blob.length,
       lastModified: new Date(),
@@ -43,7 +57,7 @@ export class WorkspaceBlobStorage {
     return this.provider.get(`${workspaceId}/${key}`);
   }
 
-  async list(workspaceId: string) {
+  async list(workspaceId: string, syncBlobMeta = true) {
     const blobsInDb = await this.db.blob.findMany({
       where: {
         workspaceId,
@@ -60,7 +74,9 @@ export class WorkspaceBlobStorage {
       blob.key = blob.key.slice(workspaceId.length + 1);
     });
 
-    this.trySyncBlobsMeta(workspaceId, blobs);
+    if (syncBlobMeta) {
+      this.trySyncBlobsMeta(workspaceId, blobs);
+    }
 
     return blobs.map(blob => ({
       key: blob.key,
@@ -105,7 +121,7 @@ export class WorkspaceBlobStorage {
     });
 
     deletedBlobs.forEach(blob => {
-      this.event.emit('workspace.blob.deleted', {
+      this.event.emit('workspace.blob.delete', {
         workspaceId: workspaceId,
         key: blob.key,
       });
@@ -113,59 +129,64 @@ export class WorkspaceBlobStorage {
   }
 
   async totalSize(workspaceId: string) {
-    const blobs = await this.list(workspaceId);
-    return blobs.reduce((acc, item) => acc + item.size, 0);
+    const sum = await this.db.blob.aggregate({
+      where: {
+        workspaceId,
+        deletedAt: null,
+      },
+      _sum: {
+        size: true,
+      },
+    });
+
+    return sum._sum.size ?? 0;
+  }
+
+  getAvatarUrl(workspaceId: string, avatarKey: string) {
+    return this.url.link(`/api/workspaces/${workspaceId}/blobs/${avatarKey}`);
   }
 
   private trySyncBlobsMeta(workspaceId: string, blobs: ListObjectsMetadata[]) {
     for (const blob of blobs) {
-      this.trySyncBlobMeta(workspaceId, blob.key);
+      this.event.emit('workspace.blob.sync', {
+        workspaceId,
+        key: blob.key,
+      });
     }
   }
 
-  private trySyncBlobMeta(
+  private async upsert(
     workspaceId: string,
     key: string,
-    meta?: GetObjectMetadata
+    meta: GetObjectMetadata
   ) {
-    setImmediate(() => {
-      this.syncBlobMeta(workspaceId, key, meta).catch(() => {
-        /* never throw */
-      });
+    await this.db.blob.upsert({
+      where: {
+        workspaceId_key: {
+          workspaceId,
+          key,
+        },
+      },
+      update: {
+        mime: meta.contentType,
+        size: meta.contentLength,
+      },
+      create: {
+        workspaceId,
+        key,
+        mime: meta.contentType,
+        size: meta.contentLength,
+      },
     });
   }
 
-  private async syncBlobMeta(
-    workspaceId: string,
-    key: string,
-    meta?: GetObjectMetadata
-  ) {
+  @OnEvent('workspace.blob.sync')
+  async syncBlobMeta({ workspaceId, key }: Events['workspace.blob.sync']) {
     try {
-      if (!meta) {
-        const blob = await this.get(workspaceId, key);
-        meta = blob.metadata;
-        blob.body?.destroy();
-      }
+      const meta = await this.provider.head(`${workspaceId}/${key}`);
 
       if (meta) {
-        await this.db.blob.upsert({
-          where: {
-            workspaceId_key: {
-              workspaceId,
-              key,
-            },
-          },
-          update: {
-            mime: meta.contentType,
-            size: meta.contentLength,
-          },
-          create: {
-            workspaceId,
-            key,
-            mime: meta.contentType,
-            size: meta.contentLength,
-          },
-        });
+        await this.upsert(workspaceId, key, meta);
       } else {
         await this.db.blob.deleteMany({
           where: {
@@ -181,23 +202,24 @@ export class WorkspaceBlobStorage {
   }
 
   @OnEvent('workspace.deleted')
-  async onWorkspaceDeleted(workspaceId: EventPayload<'workspace.deleted'>) {
-    const blobs = await this.list(workspaceId);
+  async onWorkspaceDeleted({ id }: Events['workspace.deleted']) {
+    // do not sync blob meta to DB
+    const blobs = await this.list(id, false);
 
     // to reduce cpu time holding
     blobs.forEach(blob => {
-      this.event.emit('workspace.blob.deleted', {
-        workspaceId: workspaceId,
+      this.event.emit('workspace.blob.delete', {
+        workspaceId: id,
         key: blob.key,
       });
     });
   }
 
-  @OnEvent('workspace.blob.deleted')
+  @OnEvent('workspace.blob.delete')
   async onDeleteWorkspaceBlob({
     workspaceId,
     key,
-  }: EventPayload<'workspace.blob.deleted'>) {
+  }: Events['workspace.blob.delete']) {
     await this.delete(workspaceId, key, true);
   }
 }

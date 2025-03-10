@@ -6,6 +6,7 @@ const config: CapacitorConfig = {
   appName: 'AFFiNE',
   webDir: 'dist',
   ios: {
+    scheme: 'AFFiNE',
     path: '.',
     webContentsDebuggingEnabled: true,
   },
@@ -14,13 +15,13 @@ const config: CapacitorConfig = {
   },
   plugins: {
     CapacitorCookies: {
-      enabled: true,
+      enabled: false,
     },
     CapacitorHttp: {
-      enabled: true,
+      enabled: false,
     },
     Keyboard: {
-      resize: KeyboardResize.Native,
+      resize: KeyboardResize.None,
     },
   },
 };

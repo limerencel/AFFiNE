@@ -3,11 +3,13 @@ import {
   Controller,
   HttpCode,
   HttpStatus,
+  Logger,
   Post,
+  type RawBodyRequest,
   Req,
   Res,
 } from '@nestjs/common';
-import { ConnectedAccount, PrismaClient } from '@prisma/client';
+import { ConnectedAccount } from '@prisma/client';
 import type { Request, Response } from 'express';
 
 import {
@@ -16,9 +18,10 @@ import {
   OauthAccountAlreadyConnected,
   OauthStateExpired,
   UnknownOauthProvider,
+  UseNamedGuard,
 } from '../../base';
 import { AuthService, Public } from '../../core/auth';
-import { UserService } from '../../core/user';
+import { Models } from '../../models';
 import { OAuthProviderName } from './config';
 import { OAuthAccount, Tokens } from './providers/def';
 import { OAuthProviderFactory } from './register';
@@ -26,15 +29,17 @@ import { OAuthService } from './service';
 
 @Controller('/api/oauth')
 export class OAuthController {
+  private readonly logger = new Logger(OAuthController.name);
+
   constructor(
     private readonly auth: AuthService,
     private readonly oauth: OAuthService,
-    private readonly user: UserService,
-    private readonly providerFactory: OAuthProviderFactory,
-    private readonly db: PrismaClient
+    private readonly models: Models,
+    private readonly providerFactory: OAuthProviderFactory
   ) {}
 
   @Public()
+  @UseNamedGuard('version')
   @Post('/preflight')
   @HttpCode(HttpStatus.OK)
   async preflight(
@@ -64,10 +69,11 @@ export class OAuthController {
   }
 
   @Public()
+  @UseNamedGuard('version')
   @Post('/callback')
   @HttpCode(HttpStatus.OK)
   async callback(
-    @Req() req: Request,
+    @Req() req: RawBodyRequest<Request>,
     @Res() res: Response,
     @Body('code') code?: string,
     @Body('state') stateStr?: string
@@ -100,7 +106,20 @@ export class OAuthController {
       throw new UnknownOauthProvider({ name: state.provider ?? 'unknown' });
     }
 
-    const tokens = await provider.getToken(code);
+    let tokens: Tokens;
+    try {
+      tokens = await provider.getToken(code);
+    } catch (err) {
+      let rayBodyString = '';
+      if (req.rawBody) {
+        // only log the first 4096 bytes of the raw body
+        rayBodyString = req.rawBody.subarray(0, 4096).toString('utf-8');
+      }
+      this.logger.warn(
+        `Error getting oauth token for ${state.provider}, callback code: ${code}, stateStr: ${stateStr}, rawBody: ${rayBodyString}, error: ${err}`
+      );
+      throw err;
+    }
     const externAccount = await provider.getUser(tokens.accessToken);
     const user = await this.loginFromOauth(
       state.provider,
@@ -120,50 +139,39 @@ export class OAuthController {
     externalAccount: OAuthAccount,
     tokens: Tokens
   ) {
-    const connectedUser = await this.db.connectedAccount.findFirst({
-      where: {
-        provider,
-        providerAccountId: externalAccount.id,
-      },
-      include: {
-        user: true,
-      },
-    });
+    const connectedAccount = await this.models.user.getConnectedAccount(
+      provider,
+      externalAccount.id
+    );
 
-    if (connectedUser) {
+    if (connectedAccount) {
       // already connected
-      await this.updateConnectedAccount(connectedUser, tokens);
-
-      return connectedUser.user;
+      await this.updateConnectedAccount(connectedAccount, tokens);
+      return connectedAccount.user;
     }
 
-    const user = await this.user.fulfillUser(externalAccount.email, {
-      emailVerifiedAt: new Date(),
-      registered: true,
+    const user = await this.models.user.fulfill(externalAccount.email, {
       avatarUrl: externalAccount.avatarUrl,
     });
 
-    await this.db.connectedAccount.create({
-      data: {
-        userId: user.id,
-        provider,
-        providerAccountId: externalAccount.id,
-        ...tokens,
-      },
+    await this.models.user.createConnectedAccount({
+      userId: user.id,
+      provider,
+      providerAccountId: externalAccount.id,
+      ...tokens,
     });
+
     return user;
   }
 
   private async updateConnectedAccount(
-    connectedUser: ConnectedAccount,
+    connectedAccount: ConnectedAccount,
     tokens: Tokens
   ) {
-    return this.db.connectedAccount.update({
-      where: {
-        id: connectedUser.id,
-      },
-      data: tokens,
-    });
+    return await this.models.user.updateConnectedAccount(
+      connectedAccount.id,
+      tokens
+    );
   }
 
   /**
@@ -177,26 +185,20 @@ export class OAuthController {
     externalAccount: OAuthAccount,
     tokens: Tokens
   ) {
-    const connectedUser = await this.db.connectedAccount.findFirst({
-      where: {
-        provider,
-        providerAccountId: externalAccount.id,
-      },
-    });
-
-    if (connectedUser) {
-      if (connectedUser.id !== user.id) {
+    const connectedAccount = await this.models.user.getConnectedAccount(
+      provider,
+      externalAccount.id
+    );
+    if (connectedAccount) {
+      if (connectedAccount.userId !== user.id) {
         throw new OauthAccountAlreadyConnected();
       }
     } else {
-      await this.db.connectedAccount.create({
-        data: {
-          userId: user.id,
-          provider,
-          providerAccountId: externalAccount.id,
-          accessToken: tokens.accessToken,
-          refreshToken: tokens.refreshToken,
-        },
+      await this.models.user.createConnectedAccount({
+        userId: user.id,
+        provider,
+        providerAccountId: externalAccount.id,
+        ...tokens,
       });
     }
   }

@@ -2,22 +2,18 @@ import { MenuItem, notify } from '@affine/component';
 import { filterPage } from '@affine/core/components/page-list';
 import { CollectionService } from '@affine/core/modules/collection';
 import { WorkspaceDialogService } from '@affine/core/modules/dialogs';
+import { DocsService } from '@affine/core/modules/doc';
 import type { NodeOperation } from '@affine/core/modules/explorer';
 import { CompatibleFavoriteItemsAdapter } from '@affine/core/modules/favorite';
+import { GlobalContextService } from '@affine/core/modules/global-context';
 import { ShareDocsListService } from '@affine/core/modules/share-doc';
 import type { Collection } from '@affine/env/filter';
-import { PublicPageMode } from '@affine/graphql';
+import { PublicDocMode } from '@affine/graphql';
 import { useI18n } from '@affine/i18n';
 import track from '@affine/track';
 import type { DocMeta } from '@blocksuite/affine/store';
 import { FilterMinusIcon, ViewLayersIcon } from '@blocksuite/icons/rc';
-import {
-  DocsService,
-  GlobalContextService,
-  LiveData,
-  useLiveData,
-  useServices,
-} from '@toeverything/infra';
+import { LiveData, useLiveData, useServices } from '@toeverything/infra';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 
 import { AddItemPlaceholder } from '../../layouts/add-item-placeholder';
@@ -165,9 +161,9 @@ const ExplorerCollectionNodeChildren = ({
     const pageData = {
       meta: meta as DocMeta,
       publicMode:
-        publicMode === PublicPageMode.Edgeless
+        publicMode === PublicDocMode.Edgeless
           ? ('edgeless' as const)
-          : publicMode === PublicPageMode.Page
+          : publicMode === PublicDocMode.Page
             ? ('page' as const)
             : undefined,
       favorite: favourites.some(fav => fav.id === meta.id),

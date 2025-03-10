@@ -1,3 +1,4 @@
+import { UserFriendlyError } from '@affine/error';
 import {
   backoffRetry,
   effect,
@@ -34,6 +35,11 @@ export interface AuthSessionAuthenticated {
   status: 'authenticated';
   session: AuthSessionInfo;
 }
+
+export type AuthSessionStatus = (
+  | AuthSessionUnauthenticated
+  | AuthSessionAuthenticated
+)['status'];
 
 export class AuthSession extends Entity {
   session$: LiveData<AuthSessionUnauthenticated | AuthSessionAuthenticated> =
@@ -89,22 +95,29 @@ export class AuthSession extends Entity {
   );
 
   private async getSession(): Promise<AuthSessionInfo | null> {
-    const session = await this.store.fetchSession();
+    try {
+      const session = await this.store.fetchSession();
 
-    if (session?.user) {
-      const account = {
-        id: session.user.id,
-        email: session.user.email,
-        label: session.user.name,
-        avatar: session.user.avatarUrl,
-        info: session.user,
-      };
-      const result = {
-        account,
-      };
-      return result;
-    } else {
-      return null;
+      if (session?.user) {
+        const account = {
+          id: session.user.id,
+          email: session.user.email,
+          label: session.user.name,
+          avatar: session.user.avatarUrl,
+          info: session.user,
+        };
+        const result = {
+          account,
+        };
+        return result;
+      } else {
+        return null;
+      }
+    } catch (e) {
+      if (UserFriendlyError.fromAny(e).is('UNSUPPORTED_CLIENT_VERSION')) {
+        return null;
+      }
+      throw e;
     }
   }
 

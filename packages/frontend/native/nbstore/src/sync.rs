@@ -1,28 +1,35 @@
 use chrono::NaiveDateTime;
 
-use super::storage::{Result, SqliteDocStorage};
-use super::DocClock;
+use super::{error::Result, storage::SqliteDocStorage, DocClock};
 
 impl SqliteDocStorage {
   pub async fn get_peer_remote_clocks(&self, peer: String) -> Result<Vec<DocClock>> {
-    sqlx::query_as!(
+    let result = sqlx::query_as!(
       DocClock,
       "SELECT doc_id, remote_clock as timestamp FROM peer_clocks WHERE peer = ?",
       peer
     )
     .fetch_all(&self.pool)
-    .await
+    .await?;
+
+    Ok(result)
   }
 
-  pub async fn get_peer_remote_clock(&self, peer: String, doc_id: String) -> Result<DocClock> {
-    sqlx::query_as!(
+  pub async fn get_peer_remote_clock(
+    &self,
+    peer: String,
+    doc_id: String,
+  ) -> Result<Option<DocClock>> {
+    let result = sqlx::query_as!(
       DocClock,
       "SELECT doc_id, remote_clock as timestamp FROM peer_clocks WHERE peer = ? AND doc_id = ?",
       peer,
       doc_id
     )
-    .fetch_one(&self.pool)
-    .await
+    .fetch_optional(&self.pool)
+    .await?;
+
+    Ok(result)
   }
 
   pub async fn set_peer_remote_clock(
@@ -48,28 +55,32 @@ impl SqliteDocStorage {
   }
 
   pub async fn get_peer_pulled_remote_clocks(&self, peer: String) -> Result<Vec<DocClock>> {
-    sqlx::query_as!(
+    let result = sqlx::query_as!(
       DocClock,
       "SELECT doc_id, pulled_remote_clock as timestamp FROM peer_clocks WHERE peer = ?",
       peer
     )
     .fetch_all(&self.pool)
-    .await
+    .await?;
+
+    Ok(result)
   }
 
   pub async fn get_peer_pulled_remote_clock(
     &self,
     peer: String,
     doc_id: String,
-  ) -> Result<DocClock> {
-    sqlx::query_as!(
+  ) -> Result<Option<DocClock>> {
+    let result = sqlx::query_as!(
       DocClock,
-      "SELECT doc_id, pulled_remote_clock as timestamp FROM peer_clocks WHERE peer = ? AND doc_id = ?",
+      r#"SELECT doc_id, pulled_remote_clock as timestamp FROM peer_clocks WHERE peer = ? AND doc_id = ?"#,
       peer,
       doc_id
     )
-    .fetch_one(&self.pool)
-    .await
+    .fetch_optional(&self.pool)
+    .await?;
+
+    Ok(result)
   }
 
   pub async fn set_peer_pulled_remote_clock(
@@ -95,24 +106,32 @@ impl SqliteDocStorage {
   }
 
   pub async fn get_peer_pushed_clocks(&self, peer: String) -> Result<Vec<DocClock>> {
-    sqlx::query_as!(
+    let result = sqlx::query_as!(
       DocClock,
       "SELECT doc_id, pushed_clock as timestamp FROM peer_clocks WHERE peer = ?",
       peer
     )
     .fetch_all(&self.pool)
-    .await
+    .await?;
+
+    Ok(result)
   }
 
-  pub async fn get_peer_pushed_clock(&self, peer: String, doc_id: String) -> Result<DocClock> {
-    sqlx::query_as!(
+  pub async fn get_peer_pushed_clock(
+    &self,
+    peer: String,
+    doc_id: String,
+  ) -> Result<Option<DocClock>> {
+    let result = sqlx::query_as!(
       DocClock,
       "SELECT doc_id, pushed_clock as timestamp FROM peer_clocks WHERE peer = ? AND doc_id = ?",
       peer,
       doc_id
     )
-    .fetch_one(&self.pool)
-    .await
+    .fetch_optional(&self.pool)
+    .await?;
+
+    Ok(result)
   }
 
   pub async fn set_peer_pushed_clock(

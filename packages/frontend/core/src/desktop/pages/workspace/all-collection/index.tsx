@@ -10,13 +10,15 @@ import {
   ViewIcon,
   ViewTitle,
 } from '@affine/core/modules/workbench/view/view-meta';
+import { WorkspaceService } from '@affine/core/modules/workspace';
 import { useI18n } from '@affine/i18n';
-import { useLiveData, useService, WorkspaceService } from '@toeverything/infra';
+import { useLiveData, useService } from '@toeverything/infra';
 import { nanoid } from 'nanoid';
 import { useCallback, useMemo, useState } from 'react';
 
 import { CollectionService } from '../../../../modules/collection';
 import { ViewBody, ViewHeader } from '../../../../modules/workbench';
+import { AllDocSidebarTabs } from '../layouts/all-doc-sidebar-tabs';
 import { EmptyCollectionList } from '../page-list-empty';
 import { AllCollectionHeader } from './header';
 import * as styles from './index.css';
@@ -101,6 +103,7 @@ export const AllCollection = () => {
           )}
         </div>
       </ViewBody>
+      <AllDocSidebarTabs />
     </>
   );
 };

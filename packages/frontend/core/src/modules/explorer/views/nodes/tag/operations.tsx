@@ -1,9 +1,11 @@
 import { IconButton, MenuItem, MenuSeparator, toast } from '@affine/component';
-import { usePageHelper } from '@affine/core/components/blocksuite/block-suite-page-list/utils';
+import { usePageHelper } from '@affine/core/blocksuite/block-suite-page-list/utils';
 import { IsFavoriteIcon } from '@affine/core/components/pure/icons';
+import { DocsService } from '@affine/core/modules/doc';
 import { FavoriteService } from '@affine/core/modules/favorite';
 import { TagService } from '@affine/core/modules/tag';
 import { WorkbenchService } from '@affine/core/modules/workbench';
+import { WorkspaceService } from '@affine/core/modules/workspace';
 import { useI18n } from '@affine/i18n';
 import { track } from '@affine/track';
 import {
@@ -12,13 +14,7 @@ import {
   PlusIcon,
   SplitViewIcon,
 } from '@blocksuite/icons/rc';
-import {
-  DocsService,
-  FeatureFlagService,
-  useLiveData,
-  useServices,
-  WorkspaceService,
-} from '@toeverything/infra';
+import { useLiveData, useServices } from '@toeverything/infra';
 import { useCallback, useMemo } from 'react';
 
 import type { NodeOperation } from '../../tree/types';
@@ -32,28 +28,19 @@ export const useExplorerTagNodeOperations = (
   }
 ): NodeOperation[] => {
   const t = useI18n();
-  const {
-    workbenchService,
-    workspaceService,
-    tagService,
-    favoriteService,
-    featureFlagService,
-  } = useServices({
-    WorkbenchService,
-    WorkspaceService,
-    TagService,
-    DocsService,
-    FavoriteService,
-    FeatureFlagService,
-  });
+  const { workbenchService, workspaceService, tagService, favoriteService } =
+    useServices({
+      WorkbenchService,
+      WorkspaceService,
+      TagService,
+      DocsService,
+      FavoriteService,
+    });
 
   const favorite = useLiveData(
     favoriteService.favoriteList.favorite$('tag', tagId)
   );
   const tagRecord = useLiveData(tagService.tagList.tagByTagId$(tagId));
-  const enableMultiView = useLiveData(
-    featureFlagService.flags.enable_multi_view.$
-  );
 
   const { createPage } = usePageHelper(
     workspaceService.workspace.docCollection
@@ -118,7 +105,7 @@ export const useExplorerTagNodeOperations = (
           </MenuItem>
         ),
       },
-      ...(BUILD_CONFIG.isElectron && enableMultiView
+      ...(BUILD_CONFIG.isElectron
         ? [
             {
               index: 100,
@@ -164,7 +151,6 @@ export const useExplorerTagNodeOperations = (
       },
     ],
     [
-      enableMultiView,
       favorite,
       handleMoveToTrash,
       handleNewDoc,

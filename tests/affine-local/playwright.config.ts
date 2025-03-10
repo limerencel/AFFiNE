@@ -31,9 +31,9 @@ const config: PlaywrightTestConfig = {
     // Collect trace when retrying the failed test. See https://playwright.dev/docs/trace-viewer
     // You can open traces locally(`npx playwright show-trace trace.zip`)
     // or in your browser on [Playwright Trace Viewer](https://trace.playwright.dev/).
-    trace: 'on-first-retry',
+    trace: 'retain-on-failure',
     // Record video only when retrying a test for the first time.
-    video: 'on-first-retry',
+    video: 'retain-on-failure',
   },
   forbidOnly: !!process.env.CI,
   workers: 4,
@@ -46,7 +46,7 @@ const config: PlaywrightTestConfig = {
   webServer: [
     // Intentionally not building the web, reminds you to run it by yourself.
     {
-      command: 'yarn run start:web-static',
+      command: 'yarn run -T affine dev -p @affine/web',
       port: 8080,
       timeout: 120 * 1000,
       reuseExistingServer: !process.env.CI,

@@ -1,8 +1,10 @@
 import { notify } from '@affine/component';
-import { GlobalDialogService } from '@affine/core/modules/dialogs';
+import { WorkspaceDialogService } from '@affine/core/modules/dialogs';
 import { WorkspacePermissionService } from '@affine/core/modules/permissions';
+import { WorkspaceService } from '@affine/core/modules/workspace';
 import { useI18n } from '@affine/i18n';
-import { useLiveData, useService, WorkspaceService } from '@toeverything/infra';
+import type { BlobSyncState } from '@affine/nbstore';
+import { useLiveData, useService } from '@toeverything/infra';
 import { debounce } from 'lodash-es';
 import { useCallback, useEffect } from 'react';
 
@@ -19,19 +21,19 @@ export const OverCapacityNotification = () => {
     permissionService.permission.revalidate();
   }, [permissionService]);
 
-  const globalDialogService = useService(GlobalDialogService);
+  const workspaceDialogService = useService(WorkspaceDialogService);
   const jumpToPricePlan = useCallback(() => {
-    globalDialogService.open('setting', {
+    workspaceDialogService.open('setting', {
       activeTab: 'plans',
       scrollAnchor: 'cloudPricingPlan',
     });
-  }, [globalDialogService]);
+  }, [workspaceDialogService]);
 
   // debounce sync engine status
   useEffect(() => {
     const disposableOverCapacity =
-      currentWorkspace.engine.blob.isStorageOverCapacity$.subscribe(
-        debounce((isStorageOverCapacity: boolean) => {
+      currentWorkspace.engine.blob.state$.subscribe(
+        debounce(({ isStorageOverCapacity }: BlobSyncState) => {
           const isOver = isStorageOverCapacity;
           if (!isOver) {
             return;

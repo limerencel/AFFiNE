@@ -1,7 +1,7 @@
-import { NodePropsSchema } from '@blocksuite/affine-shared/utils';
+import { GeneralSettingSchema } from '@blocksuite/affine/shared/services';
 import { z } from 'zod';
 
-export const BSEditorSettingSchema = NodePropsSchema;
+export const BSEditorSettingSchema = GeneralSettingSchema;
 
 export type FontFamily = 'Sans' | 'Serif' | 'Mono' | 'Custom';
 export type EdgelessDefaultTheme = 'auto' | 'dark' | 'light' | 'specified';
@@ -19,7 +19,7 @@ export const fontStyleOptions = [
 const AffineEditorSettingSchema = z.object({
   fontFamily: z.enum(['Sans', 'Serif', 'Mono', 'Custom']).default('Sans'),
   customFontFamily: z.string().default(''),
-  newDocDefaultMode: z.enum(['edgeless', 'page']).default('page'),
+  newDocDefaultMode: z.enum(['edgeless', 'page', 'ask']).default('page'),
   fullWidthLayout: z.boolean().default(false),
   displayDocInfo: z.boolean().default(true),
   displayBiDirectionalLink: z.boolean().default(true),
@@ -32,5 +32,5 @@ export const EditorSettingSchema = BSEditorSettingSchema.merge(
   AffineEditorSettingSchema
 );
 
-// eslint-disable-next-line no-redeclare
+// oxlint-disable-next-line no-redeclare
 export type EditorSettingSchema = z.infer<typeof EditorSettingSchema>;

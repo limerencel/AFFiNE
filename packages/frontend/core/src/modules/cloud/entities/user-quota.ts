@@ -1,6 +1,5 @@
 import type { QuotaQuery } from '@affine/graphql';
 import {
-  backoffRetry,
   catchErrorInto,
   effect,
   Entity,
@@ -9,17 +8,19 @@ import {
   LiveData,
   onComplete,
   onStart,
+  smartRetry,
 } from '@toeverything/infra';
 import { cssVar } from '@toeverything/theme';
 import bytes from 'bytes';
 import { EMPTY, map, mergeMap } from 'rxjs';
 
-import { isBackendError, isNetworkError } from '../error';
 import type { AuthService } from '../services/auth';
 import type { UserQuotaStore } from '../stores/user-quota';
 
 export class UserQuota extends Entity {
-  quota$ = new LiveData<NonNullable<QuotaQuery['currentUser']>['quota']>(null);
+  quota$ = new LiveData<NonNullable<QuotaQuery['currentUser']>['quota'] | null>(
+    null
+  );
   /** Used storage in bytes */
   used$ = new LiveData<number | null>(null);
   /** Formatted used storage */
@@ -77,13 +78,7 @@ export class UserQuota extends Entity {
 
           return { quota, used };
         }).pipe(
-          backoffRetry({
-            when: isNetworkError,
-            count: Infinity,
-          }),
-          backoffRetry({
-            when: isBackendError,
-          }),
+          smartRetry(),
           mergeMap(data => {
             if (data) {
               const { quota, used } = data;

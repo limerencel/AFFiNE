@@ -1,29 +1,32 @@
 import {
+  Avatar,
   Button,
   Divider,
+  IconButton,
   Input,
   Menu,
   MenuItem,
   MenuTrigger,
   Modal,
   notify,
+  Scrollable,
 } from '@affine/component';
 import { AuthPageContainer } from '@affine/component/auth-components';
+import { useSignOut } from '@affine/core/components/hooks/affine/use-sign-out';
 import { useAsyncCallback } from '@affine/core/components/hooks/affine-async-hooks';
 import { useWorkspaceInfo } from '@affine/core/components/hooks/use-workspace-info';
 import { PureWorkspaceCard } from '@affine/core/components/workspace-selector/workspace-card';
 import { AuthService } from '@affine/core/modules/cloud';
+import {
+  type WorkspaceMetadata,
+  WorkspacesService,
+} from '@affine/core/modules/workspace';
 import { buildShowcaseWorkspace } from '@affine/core/utils/first-app-data';
 import { UNTITLED_WORKSPACE_NAME } from '@affine/env/constant';
 import { SubscriptionPlan, SubscriptionRecurring } from '@affine/graphql';
 import { type I18nString, Trans, useI18n } from '@affine/i18n';
-import { DoneIcon, NewPageIcon } from '@blocksuite/icons/rc';
-import {
-  useLiveData,
-  useService,
-  type WorkspaceMetadata,
-  WorkspacesService,
-} from '@toeverything/infra';
+import { DoneIcon, NewPageIcon, SignOutIcon } from '@blocksuite/icons/rc';
+import { useLiveData, useService } from '@toeverything/infra';
 import { useCallback, useMemo, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 
@@ -54,10 +57,15 @@ export const Component = () => {
 
 export const UpgradeToTeam = ({ recurring }: { recurring: string | null }) => {
   const t = useI18n();
+
   const workspacesList = useService(WorkspacesService).list;
   const workspaces = useLiveData(workspacesList.workspaces$);
   const [openUpgrade, setOpenUpgrade] = useState(false);
   const [openCreate, setOpenCreate] = useState(false);
+
+  const authService = useService(AuthService);
+  const user = useLiveData(authService.session.account$);
+  const onSignOut = useSignOut();
 
   const [selectedWorkspace, setSelectedWorkspace] =
     useState<WorkspaceMetadata | null>(null);
@@ -102,7 +110,6 @@ export const UpgradeToTeam = ({ recurring }: { recurring: string | null }) => {
         >
           <MenuTrigger
             className={styles.menuTrigger}
-            tooltip={menuTriggerText}
             data-selected={!!selectedWorkspace}
           >
             {menuTriggerText}
@@ -144,6 +151,19 @@ export const UpgradeToTeam = ({ recurring }: { recurring: string | null }) => {
             onSelect={setSelectedWorkspace}
           />
         </div>
+        {user ? (
+          <div className={styles.userContainer}>
+            <Avatar url={user.avatar} name={user.label} />
+            <span className={styles.email}>{user.email}</span>
+            <IconButton
+              onClick={onSignOut}
+              size="20"
+              tooltip={t['404.signOut']()}
+            >
+              <SignOutIcon />
+            </IconButton>
+          </div>
+        ) : null}
       </div>
     </AuthPageContainer>
   );
@@ -239,13 +259,18 @@ const WorkspaceSelector = ({
   return (
     <div>
       {cloudWorkspaces.length > 0 ? (
-        cloudWorkspaces.map(workspace => (
-          <WorkspaceItem
-            key={workspace.id}
-            meta={workspace}
-            onSelect={handleSelect}
-          />
-        ))
+        <Scrollable.Root>
+          <Scrollable.Viewport style={{ maxHeight: '40vh' }}>
+            {cloudWorkspaces.map(workspace => (
+              <WorkspaceItem
+                key={workspace.id}
+                meta={workspace}
+                onSelect={handleSelect}
+              />
+            ))}
+          </Scrollable.Viewport>
+          <Scrollable.Scrollbar />
+        </Scrollable.Root>
       ) : (
         <div className={styles.noWorkspaceItem}>
           {t['com.affine.upgrade-to-team-page.no-workspace-available']()}

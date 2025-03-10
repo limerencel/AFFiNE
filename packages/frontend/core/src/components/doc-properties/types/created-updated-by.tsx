@@ -1,7 +1,8 @@
 import { Avatar, PropertyValue } from '@affine/component';
 import { CloudDocMetaService } from '@affine/core/modules/cloud/services/cloud-doc-meta';
+import { WorkspaceService } from '@affine/core/modules/workspace';
 import { useI18n } from '@affine/i18n';
-import { useLiveData, useService, WorkspaceService } from '@toeverything/infra';
+import { useLiveData, useService } from '@toeverything/infra';
 import { useEffect, useMemo } from 'react';
 
 import { userWrapper } from './created-updated-by.css';
@@ -76,14 +77,14 @@ export const CreatedByValue = () => {
 
   if (!isCloud) {
     return (
-      <PropertyValue>
+      <PropertyValue readonly>
         <LocalUserValue />
       </PropertyValue>
     );
   }
 
   return (
-    <PropertyValue>
+    <PropertyValue readonly>
       <CloudUserAvatar type="CreatedBy" />
     </PropertyValue>
   );
@@ -95,14 +96,14 @@ export const UpdatedByValue = () => {
 
   if (!isCloud) {
     return (
-      <PropertyValue>
+      <PropertyValue readonly>
         <LocalUserValue />
       </PropertyValue>
     );
   }
 
   return (
-    <PropertyValue>
+    <PropertyValue readonly>
       <CloudUserAvatar type="UpdatedBy" />
     </PropertyValue>
   );

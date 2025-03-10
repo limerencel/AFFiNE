@@ -50,10 +50,7 @@ export const ChatMessageRole = Object.values(AiPromptRole) as [
 const PureMessageSchema = z.object({
   content: z.string(),
   attachments: z.array(z.string()).optional().nullable(),
-  params: z
-    .record(z.union([z.string(), z.array(z.string()), z.record(z.any())]))
-    .optional()
-    .nullable(),
+  params: z.record(z.any()).optional().nullable(),
 });
 
 export const PromptMessageSchema = PureMessageSchema.extend({
@@ -123,6 +120,11 @@ export interface ChatSessionOptions {
   promptName: string;
 }
 
+export interface ChatSessionPromptUpdateOptions
+  extends Pick<ChatSessionState, 'sessionId' | 'userId'> {
+  promptName: string;
+}
+
 export interface ChatSessionForkOptions
   extends Omit<ChatSessionOptions, 'promptName'> {
   sessionId: string;
@@ -147,6 +149,7 @@ export type ListHistoriesOptions = {
   sessionOrder: 'asc' | 'desc' | undefined;
   messageOrder: 'asc' | 'desc' | undefined;
   sessionId: string | undefined;
+  withPrompt: boolean | undefined;
 };
 
 // ======== Provider Interface ========
@@ -154,6 +157,7 @@ export type ListHistoriesOptions = {
 export enum CopilotProviderType {
   FAL = 'fal',
   OpenAI = 'openai',
+  Perplexity = 'perplexity',
   // only for test
   Test = 'test',
 }
@@ -194,6 +198,13 @@ const CopilotImageOptionsSchema = CopilotProviderOptionsSchema.merge(
   .optional();
 
 export type CopilotImageOptions = z.infer<typeof CopilotImageOptionsSchema>;
+
+export type CopilotContextFile = {
+  id: string; // fileId
+  created_at: number;
+  // embedding status
+  status: 'in_progress' | 'completed' | 'failed';
+};
 
 export interface CopilotProvider {
   readonly type: CopilotProviderType;

@@ -14,12 +14,7 @@ import {
   PlusIcon,
   SplitViewIcon,
 } from '@blocksuite/icons/rc';
-import {
-  FeatureFlagService,
-  useLiveData,
-  useService,
-  useServices,
-} from '@toeverything/infra';
+import { useLiveData, useService, useServices } from '@toeverything/infra';
 import type { PropsWithChildren, ReactElement } from 'react';
 import { useCallback, useMemo } from 'react';
 
@@ -40,21 +35,16 @@ export const CollectionOperations = ({
   const {
     collectionService: service,
     workbenchService,
-    featureFlagService,
     workspaceDialogService,
   } = useServices({
     CollectionService,
     WorkbenchService,
-    FeatureFlagService,
     WorkspaceDialogService,
   });
   const deleteInfo = useDeleteCollectionInfo();
   const workbench = workbenchService.workbench;
   const t = useI18n();
   const { openPromptModal } = usePromptModal();
-  const enableMultiView = useLiveData(
-    featureFlagService.flags.enable_multi_view.$
-  );
 
   const showEditName = useCallback(() => {
     // use openRenameModal if it is in the sidebar collection list
@@ -154,7 +144,7 @@ export const CollectionOperations = ({
         name: t['com.affine.workbench.tab.page-menu-open'](),
         click: openCollectionNewTab,
       },
-      ...(BUILD_CONFIG.isElectron && enableMultiView
+      ...(BUILD_CONFIG.isElectron
         ? [
             {
               icon: <SplitViewIcon />,
@@ -176,7 +166,6 @@ export const CollectionOperations = ({
       },
     ],
     [
-      enableMultiView,
       t,
       showEditName,
       showEdit,

@@ -32,8 +32,6 @@ import { getOrCreateCustomThemeWindow } from '../windows-manager/custom-theme-wi
 import { getChallengeResponse } from './challenge';
 import { uiSubjects } from './subject';
 
-export let isOnline = true;
-
 export const uiHandlers = {
   isMaximized: async () => {
     const window = await getMainWindow();
@@ -71,8 +69,9 @@ export const uiHandlers = {
   handleCloseApp: async () => {
     app.quit();
   },
-  handleNetworkChange: async (_, _isOnline: boolean) => {
-    isOnline = _isOnline;
+  handleHideApp: async () => {
+    const window = await getMainWindow();
+    window?.hide();
   },
   getChallengeResponse: async (_, challenge: string) => {
     return getChallengeResponse(challenge);
@@ -106,7 +105,7 @@ export const uiHandlers = {
       link =
         'https://api.fxtwitter.com/status/' + /\/status\/(.*)/.exec(link)?.[1];
       try {
-        const { tweet } = await fetch(link).then(res => res.json());
+        const { tweet } = (await fetch(link).then(res => res.json())) as any;
         return {
           title: tweet.author.name,
           icon: tweet.author.avatar_url,
@@ -191,6 +190,7 @@ export const uiHandlers = {
   closeTab: async (_, ...args: Parameters<typeof closeTab>) => {
     await closeTab(...args);
   },
+
   activateView: async (_, ...args: Parameters<typeof activateView>) => {
     await activateView(...args);
   },

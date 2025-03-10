@@ -1,48 +1,51 @@
-import { fuzzyMatch } from '@affine/core/utils/fuzzy-match';
 import { I18n, i18nTime } from '@affine/i18n';
 import track from '@affine/track';
+import type { EditorHost } from '@blocksuite/affine/block-std';
 import {
-  type AffineInlineEditor,
-  type DocMode,
   type LinkedMenuGroup,
   type LinkedMenuItem,
   type LinkedWidgetConfig,
   LinkedWidgetUtils,
-} from '@blocksuite/affine/blocks';
+} from '@blocksuite/affine/blocks/root';
+import type { DocMode } from '@blocksuite/affine/model';
+import type { AffineInlineEditor } from '@blocksuite/affine/rich-text';
+import type { DocMeta } from '@blocksuite/affine/store';
 import { Text } from '@blocksuite/affine/store';
-import type { EditorHost } from '@blocksuite/block-std';
 import {
   DateTimeIcon,
   NewXxxEdgelessIcon,
   NewXxxPageIcon,
 } from '@blocksuite/icons/lit';
-import type { DocMeta } from '@blocksuite/store';
-import { signal } from '@preact/signals-core';
-import type { DocsService, WorkspaceService } from '@toeverything/infra';
+import { computed, Signal } from '@preact/signals-core';
 import { Service } from '@toeverything/infra';
 import { cssVarV2 } from '@toeverything/theme/v2';
 import { html } from 'lit';
-import { unsafeHTML } from 'lit/directives/unsafe-html.js';
 
 import type { WorkspaceDialogService } from '../../dialogs';
+import type { DocsService } from '../../doc';
 import type { DocDisplayMetaService } from '../../doc-display-meta';
-import type { DocsSearchService } from '../../docs-search';
+import type { DocSearchMenuService } from '../../doc-search-menu/services';
 import type { EditorSettingService } from '../../editor-setting';
 import { type JournalService, suggestJournalDate } from '../../journal';
-import type { RecentDocsService } from '../../quicksearch';
 
-const MAX_DOCS = 3;
-const LOAD_CHUNK = 100;
+function resolveSignal<T>(data: T | Signal<T>): T {
+  return data instanceof Signal ? data.value : data;
+}
+
+const RESERVED_ITEM_KEYS = {
+  createPage: 'create:page',
+  createEdgeless: 'create:edgeless',
+  datePicker: 'date-picker',
+};
+
 export class AtMenuConfigService extends Service {
   constructor(
-    private readonly workspaceService: WorkspaceService,
     private readonly journalService: JournalService,
     private readonly docDisplayMetaService: DocDisplayMetaService,
     private readonly dialogService: WorkspaceDialogService,
-    private readonly recentDocsService: RecentDocsService,
     private readonly editorSettingService: EditorSettingService,
     private readonly docsService: DocsService,
-    private readonly docsSearch: DocsSearchService
+    private readonly docsSearchMenuService: DocSearchMenuService
   ) {
     super();
   }
@@ -53,6 +56,7 @@ export class AtMenuConfigService extends Service {
     return {
       getMenus: this.getMenusFn(),
       mobile: this.getMobileConfig(),
+      autoFocusedItemKey: this.autoFocusedItemKey,
     };
   }
 
@@ -63,118 +67,30 @@ export class AtMenuConfigService extends Service {
     });
   }
 
-  private linkToDocGroup(
+  private readonly autoFocusedItemKey = (
+    menus: LinkedMenuGroup[],
     query: string,
-    close: () => void,
-    inlineEditor: AffineInlineEditor,
-    abortSignal: AbortSignal
-  ): LinkedMenuGroup {
-    const currentWorkspace = this.workspaceService.workspace;
-    const rawMetas = currentWorkspace.docCollection.meta.docMetas;
-    const isJournal = (d: DocMeta) =>
-      !!this.journalService.journalDate$(d.id).value;
-    const docItems = signal<LinkedMenuItem[]>([]);
+    currentActiveKey: string | null
+  ): string | null => {
+    if (query.trim().length === 0) {
+      return null;
+    }
 
-    const docDisplayMetaService = this.docDisplayMetaService;
+    if (
+      currentActiveKey === RESERVED_ITEM_KEYS.createPage ||
+      currentActiveKey === RESERVED_ITEM_KEYS.createEdgeless
+    ) {
+      return currentActiveKey;
+    }
 
-    type DocMetaWithHighlights = DocMeta & {
-      highlights: string | undefined;
-    };
-
-    const toDocItem = (meta: DocMetaWithHighlights): LinkedMenuItem | null => {
-      if (isJournal(meta)) {
-        return null;
-      }
-
-      if (meta.trash) {
-        return null;
-      }
-
-      let title = docDisplayMetaService.title$(meta.id, {
-        reference: true,
-      }).value;
-
-      if (typeof title === 'object' && 'i18nKey' in title) {
-        title = I18n.t(title);
-      }
-
-      if (!fuzzyMatch(title, query)) {
-        return null;
-      }
-
-      return {
-        name: meta.highlights ? html`${unsafeHTML(meta.highlights)}` : title,
-        key: meta.id,
-        icon: docDisplayMetaService
-          .icon$(meta.id, {
-            type: 'lit',
-            reference: true,
-          })
-          .value(),
-        action: () => {
-          close();
-          track.doc.editor.atMenu.linkDoc();
-          this.insertDoc(inlineEditor, meta.id);
-        },
-      };
-    };
-
-    const showRecent = query.trim().length === 0;
-
-    (async () => {
-      const docMetas = (
-        showRecent
-          ? this.recentDocsService.getRecentDocs()
-          : await this.searchDocs(query)
-      )
-        .map(doc => {
-          const meta = rawMetas.find(meta => meta.id === doc.id);
-
-          if (!meta) {
-            return null;
-          }
-
-          const highlights = 'highlights' in doc ? doc.highlights : undefined;
-          return {
-            ...meta,
-            highlights,
-          };
-        })
-        .filter((m): m is DocMetaWithHighlights => !!m);
-
-      for (const [index, meta] of docMetas.entries()) {
-        if (abortSignal.aborted) {
-          return;
-        }
-
-        const item = toDocItem(meta);
-        if (item) {
-          docItems.value = [...docItems.value, item];
-        }
-
-        if (index % LOAD_CHUNK === 0) {
-          // use scheduler.yield?
-          await new Promise(resolve => setTimeout(resolve, 0));
-        }
-      }
-    })().catch(console.error);
-
-    return {
-      name: showRecent
-        ? I18n.t('com.affine.editor.at-menu.recent-docs')
-        : I18n.t('com.affine.editor.at-menu.link-to-doc', {
-            query,
-          }),
-      items: docItems,
-      maxDisplay: MAX_DOCS,
-      get overflowText() {
-        const overflowCount = docItems.value.length - MAX_DOCS;
-        return I18n.t('com.affine.editor.at-menu.more-docs-hint', {
-          count: overflowCount > 100 ? '100+' : overflowCount,
-        });
-      },
-    };
-  }
+    // if the second group (linkToDocGroup) is EMPTY,
+    // if the query is NOT empty && the second group (linkToDocGroup) is EMPTY,
+    // we will focus on the first item of the third group (create), which is the "New Doc" item.
+    if (resolveSignal(menus[1].items).length === 0) {
+      return resolveSignal(menus[2].items)[0]?.key;
+    }
+    return null;
+  };
 
   private newDocMenuGroup(
     query: string,
@@ -194,11 +110,9 @@ export class AtMenuConfigService extends Service {
       ? originalNewDocMenuGroup.items
       : originalNewDocMenuGroup.items.value;
 
-    const newDocItem = items.find(item => item.key === 'create');
     const importItem = items.find(item => item.key === 'import');
 
-    // should have both new doc and import item
-    if (!newDocItem || !importItem) {
+    if (!importItem) {
       return originalNewDocMenuGroup;
     }
 
@@ -216,7 +130,7 @@ export class AtMenuConfigService extends Service {
 
     const customNewDocItems: LinkedMenuItem[] = [
       {
-        key: 'create-page',
+        key: RESERVED_ITEM_KEYS.createPage,
         icon: NewXxxPageIcon(),
         name: I18n.t('com.affine.editor.at-menu.create-page', {
           name: query || I18n.t('Untitled'),
@@ -231,7 +145,7 @@ export class AtMenuConfigService extends Service {
         },
       },
       {
-        key: 'create-edgeless',
+        key: RESERVED_ITEM_KEYS.createEdgeless,
         icon: NewXxxEdgelessIcon(),
         name: I18n.t('com.affine.editor.at-menu.create-edgeless', {
           name: query || I18n.t('Untitled'),
@@ -289,12 +203,15 @@ export class AtMenuConfigService extends Service {
     const items: LinkedMenuItem[] = [
       {
         icon: DateTimeIcon(),
-        key: 'date-picker',
+        key: RESERVED_ITEM_KEYS.datePicker,
         name: I18n.t('com.affine.editor.at-menu.date-picker'),
         action: () => {
           close();
 
           const getRect = () => {
+            if (!inlineEditor.rootElement) {
+              return { x: 0, y: 0, width: 0, height: 0 };
+            }
             let rect = inlineEditor.getNativeRange()?.getBoundingClientRect();
 
             if (!rect || rect.width === 0 || rect.height === 0) {
@@ -341,7 +258,7 @@ export class AtMenuConfigService extends Service {
 
       items.unshift({
         icon: icon(),
-        key: dateString,
+        key: RESERVED_ITEM_KEYS.datePicker + ':' + dateString,
         name: alias
           ? html`${alias},
               <span style="color: ${cssVarV2('text/secondary')}"
@@ -364,6 +281,35 @@ export class AtMenuConfigService extends Service {
     };
   }
 
+  private linkToDocGroup(
+    query: string,
+    close: () => void,
+    inlineEditor: AffineInlineEditor,
+    abortSignal: AbortSignal
+  ): LinkedMenuGroup {
+    const action = (meta: DocMeta) => {
+      close();
+      track.doc.editor.atMenu.linkDoc();
+      this.insertDoc(inlineEditor, meta.id);
+    };
+    const result = this.docsSearchMenuService.getDocMenuGroup(
+      query,
+      action,
+      abortSignal
+    );
+    const filterItem = (item: LinkedMenuItem) => {
+      const isJournal = !!this.journalService.journalDate$(item.key).value;
+      return !isJournal;
+    };
+    const items = result.items;
+    if (Array.isArray(items)) {
+      result.items = items.filter(filterItem);
+    } else {
+      result.items = computed(() => items.value.filter(filterItem));
+    }
+    return result;
+  }
+
   private getMenusFn(): LinkedWidgetConfig['getMenus'] {
     return (query, close, editorHost, inlineEditor, abortSignal) => {
       return [
@@ -376,7 +322,6 @@ export class AtMenuConfigService extends Service {
 
   private getMobileConfig(): Partial<LinkedWidgetConfig['mobile']> {
     return {
-      useScreenHeight: BUILD_CONFIG.isIOS,
       scrollContainer: window,
       scrollTopOffset: () => {
         const header = document.querySelector('header');
@@ -386,57 +331,5 @@ export class AtMenuConfigService extends Service {
         return y + height;
       },
     };
-  }
-
-  // only search docs by title, excluding blocks
-  private async searchDocs(query: string) {
-    const { buckets } = await this.docsSearch.indexer.blockIndex.aggregate(
-      {
-        type: 'boolean',
-        occur: 'must',
-        queries: [
-          {
-            type: 'match',
-            field: 'content',
-            match: query,
-          },
-          {
-            type: 'boolean',
-            occur: 'should',
-            queries: [
-              {
-                type: 'match',
-                field: 'flavour',
-                match: 'affine:page',
-              },
-            ],
-          },
-        ],
-      },
-      'docId',
-      {
-        hits: {
-          fields: ['docId', 'content'],
-          pagination: {
-            limit: 1,
-          },
-          highlights: [
-            {
-              field: 'content',
-              before: `<span style="color: ${cssVarV2('text/emphasis')}">`,
-              end: '</span>',
-            },
-          ],
-        },
-      }
-    );
-    const result = buckets.map(bucket => {
-      return {
-        id: bucket.key,
-        title: bucket.hits.nodes[0].fields.content,
-        highlights: bucket.hits.nodes[0].highlights.content[0],
-      };
-    });
-    return result;
   }
 }

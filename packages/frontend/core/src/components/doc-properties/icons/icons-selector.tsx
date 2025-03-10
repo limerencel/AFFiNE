@@ -1,6 +1,6 @@
 import { Menu, Scrollable } from '@affine/component';
+import type { DocCustomPropertyInfo } from '@affine/core/modules/db';
 import { useI18n } from '@affine/i18n';
-import type { DocCustomPropertyInfo } from '@toeverything/infra';
 import { chunk } from 'lodash-es';
 
 import { type DocPropertyIconName, DocPropertyIconNames } from './constant';
@@ -55,11 +55,20 @@ const IconsSelectorPanel = ({
 
 export const DocPropertyIconSelector = ({
   propertyInfo,
+  readonly,
   onSelectedChange,
 }: {
   propertyInfo: DocCustomPropertyInfo;
+  readonly?: boolean;
   onSelectedChange: (icon: DocPropertyIconName) => void;
 }) => {
+  if (readonly) {
+    return (
+      <div className={styles.iconSelectorButton} data-readonly={readonly}>
+        <DocPropertyIcon propertyInfo={propertyInfo} />
+      </div>
+    );
+  }
   return (
     <Menu
       items={

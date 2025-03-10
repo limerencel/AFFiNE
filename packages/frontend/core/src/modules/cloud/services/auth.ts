@@ -1,12 +1,13 @@
-import { AIProvider } from '@affine/core/blocksuite/presets/ai';
+import { AIProvider } from '@affine/core/blocksuite/ai';
+import { UserFriendlyError } from '@affine/error';
 import type { OAuthProviderType } from '@affine/graphql';
 import { track } from '@affine/track';
-import { ApplicationFocused, OnEvent, Service } from '@toeverything/infra';
+import { OnEvent, Service } from '@toeverything/infra';
 import { distinctUntilChanged, map, skip } from 'rxjs';
 
+import { ApplicationFocused } from '../../lifecycle';
 import type { UrlService } from '../../url';
 import { type AuthAccountInfo, AuthSession } from '../entities/session';
-import { BackendError } from '../error';
 import { AccountChanged } from '../events/account-changed';
 import { AccountLoggedIn } from '../events/account-logged-in';
 import { AccountLoggedOut } from '../events/account-logged-out';
@@ -102,28 +103,23 @@ export class AuthService extends Service {
     } catch (e) {
       track.$.$.auth.signInFail({
         method: 'magic-link',
-        reason: e instanceof BackendError ? e.originError.name : 'unknown',
+        reason: UserFriendlyError.fromAny(e).name,
       });
       throw e;
     }
   }
 
-  async signInMagicLink(email: string, token: string) {
+  async signInMagicLink(email: string, token: string, byLink = true) {
+    const method = byLink ? 'magic-link' : 'otp';
     try {
-      await this.fetchService.fetch('/api/auth/magic-link', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ email, token }),
-      });
+      await this.store.signInMagicLink(email, token);
 
       this.session.revalidate();
-      track.$.$.auth.signedIn({ method: 'magic-link' });
+      track.$.$.auth.signedIn({ method });
     } catch (e) {
       track.$.$.auth.signInFail({
-        method: 'magic-link',
-        reason: e instanceof BackendError ? e.originError.name : 'unknown',
+        method,
+        reason: UserFriendlyError.fromAny(e).name,
       });
       throw e;
     }
@@ -158,12 +154,12 @@ export class AuthService extends Service {
       );
       url = oauthUrl.toString();
 
-      return url;
+      return url as string;
     } catch (e) {
       track.$.$.auth.signInFail({
         method: 'oauth',
         provider,
-        reason: e instanceof BackendError ? e.originError.name : 'unknown',
+        reason: UserFriendlyError.fromAny(e).name,
       });
       throw e;
     }
@@ -171,23 +167,21 @@ export class AuthService extends Service {
 
   async signInOauth(code: string, state: string, provider: string) {
     try {
-      const res = await this.fetchService.fetch('/api/oauth/callback', {
-        method: 'POST',
-        body: JSON.stringify({ code, state }),
-        headers: {
-          'content-type': 'application/json',
-        },
-      });
+      const { redirectUri } = await this.store.signInOauth(
+        code,
+        state,
+        provider
+      );
 
       this.session.revalidate();
 
       track.$.$.auth.signedIn({ method: 'oauth', provider });
-      return res.json();
+      return { redirectUri };
     } catch (e) {
       track.$.$.auth.signInFail({
         method: 'oauth',
         provider,
-        reason: e instanceof BackendError ? e.originError.name : 'unknown',
+        reason: UserFriendlyError.fromAny(e).name,
       });
       throw e;
     }
@@ -201,29 +195,20 @@ export class AuthService extends Service {
   }) {
     track.$.$.auth.signIn({ method: 'password' });
     try {
-      await this.fetchService.fetch('/api/auth/sign-in', {
-        method: 'POST',
-        body: JSON.stringify(credential),
-        headers: {
-          'content-type': 'application/json',
-          ...(credential.verifyToken
-            ? this.captchaHeaders(credential.verifyToken, credential.challenge)
-            : {}),
-        },
-      });
+      await this.store.signInPassword(credential);
       this.session.revalidate();
       track.$.$.auth.signedIn({ method: 'password' });
     } catch (e) {
       track.$.$.auth.signInFail({
         method: 'password',
-        reason: e instanceof BackendError ? e.originError.name : 'unknown',
+        reason: UserFriendlyError.fromAny(e).name,
       });
       throw e;
     }
   }
 
   async signOut() {
-    await this.fetchService.fetch('/api/auth/sign-out');
+    await this.store.signOut();
     this.store.setCachedAuthSession(null);
     this.session.revalidate();
   }

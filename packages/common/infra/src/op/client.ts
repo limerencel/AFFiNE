@@ -31,7 +31,7 @@ export class OpClient<Ops extends OpSchema> extends AutoMessageHandler {
   private readonly pendingCalls = new Map<string, PendingCall>();
   private readonly obs = new Map<string, Observer<any>>();
   private readonly options: OpClientOptions = {
-    timeout: 3000,
+    timeout: Infinity,
   };
 
   constructor(port: MessageCommunicapable, options: OpClientOptions = {}) {
@@ -139,9 +139,12 @@ export class OpClient<Ops extends OpSchema> extends AutoMessageHandler {
       raise('canceled');
     };
 
-    const timeout = setTimeout(() => {
-      raise('timeout');
-    }, this.options.timeout);
+    const timeout =
+      this.options.timeout === Infinity
+        ? 0
+        : setTimeout(() => {
+            raise('timeout');
+          }, this.options.timeout);
 
     const transferables = fetchTransferables(payload);
 
@@ -159,16 +162,19 @@ export class OpClient<Ops extends OpSchema> extends AutoMessageHandler {
     op: Op,
     ...args: OpInput<Ops, Op>
   ): Observable<Out> {
-    const payload = args[0];
-
-    const msg = {
-      type: 'subscribe',
-      id: this.nextCallId(op),
-      name: op as string,
-      payload,
-    } satisfies SubscribeMessage;
-
     const sub$ = new Observable<Out>(ob => {
+      const payload = args[0];
+
+      const msg = {
+        type: 'subscribe',
+        id: this.nextCallId(op),
+        name: op as string,
+        payload,
+      } satisfies SubscribeMessage;
+
+      const transferables = fetchTransferables(payload);
+      this.port.postMessage(msg, { transfer: transferables });
+
       this.obs.set(msg.id, ob);
 
       return () => {
@@ -180,9 +186,6 @@ export class OpClient<Ops extends OpSchema> extends AutoMessageHandler {
         } satisfies UnsubscribeMessage);
       };
     });
-
-    const transferables = fetchTransferables(payload);
-    this.port.postMessage(msg, { transfer: transferables });
 
     return sub$;
   }

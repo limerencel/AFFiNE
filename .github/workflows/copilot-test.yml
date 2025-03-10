@@ -3,10 +3,6 @@ name: Copilot Cron Test
 on:
   workflow_dispatch:
 
-env:
-  NX_CLOUD_ACCESS_TOKEN: ${{ secrets.NX_CLOUD_ACCESS_TOKEN }}
-  PLAYWRIGHT_BROWSERS_PATH: ${{ github.workspace }}/node_modules/.cache/ms-playwright
-
 jobs:
   build-server-native:
     name: Build Server native
@@ -25,7 +21,6 @@ jobs:
         with:
           target: 'x86_64-unknown-linux-gnu'
           package: '@affine/server-native'
-          nx_token: ${{ secrets.NX_CLOUD_ACCESS_TOKEN }}
       - name: Upload server-native.node
         uses: actions/upload-artifact@v4
         with:
@@ -84,11 +79,12 @@ jobs:
         uses: ./.github/actions/server-test-env
 
       - name: Run server tests
-        run: yarn workspace @affine/server test:copilot:coverage --forbid-only
+        run: yarn affine @affine/server test:copilot:coverage --forbid-only
         env:
           CARGO_TARGET_DIR: '${{ github.workspace }}/target'
           COPILOT_OPENAI_API_KEY: ${{ secrets.COPILOT_OPENAI_API_KEY }}
           COPILOT_FAL_API_KEY: ${{ secrets.COPILOT_FAL_API_KEY }}
+          COPILOT_PERPLEXITY_API_KEY: ${{ secrets.COPILOT_PERPLEXITY_API_KEY }}
 
       - name: Upload server test coverage results
         uses: codecov/codecov-action@v5
@@ -100,7 +96,7 @@ jobs:
           fail_ci_if_error: false
 
   copilot-e2e-test:
-    name: Server Copilot E2E Test
+    name: Frontend Copilot E2E Test
     runs-on: ubuntu-latest
     env:
       DISTRIBUTION: web
@@ -149,9 +145,10 @@ jobs:
       - name: Run Copilot E2E Test ${{ matrix.shardIndex }}/${{ matrix.shardTotal }}
         uses: ./.github/actions/copilot-test
         with:
-          script: yarn workspace @affine-test/affine-cloud-copilot e2e --forbid-only --shard=${{ matrix.shardIndex }}/${{ matrix.shardTotal }}
+          script: yarn affine @affine-test/affine-cloud-copilot e2e --forbid-only --shard=${{ matrix.shardIndex }}/${{ matrix.shardTotal }}
           openai-key: ${{ secrets.COPILOT_OPENAI_API_KEY }}
           fal-key: ${{ secrets.COPILOT_FAL_API_KEY }}
+          perplexity-key: ${{ secrets.COPILOT_PERPLEXITY_API_KEY }}
 
   test-done:
     needs:

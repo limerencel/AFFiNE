@@ -1,8 +1,6 @@
 import type { SubscriptionQuery, SubscriptionRecurring } from '@affine/graphql';
 import { SubscriptionPlan } from '@affine/graphql';
-import type { WorkspaceService } from '@toeverything/infra';
 import {
-  backoffRetry,
   catchErrorInto,
   effect,
   Entity,
@@ -11,13 +9,13 @@ import {
   LiveData,
   onComplete,
   onStart,
+  smartRetry,
 } from '@toeverything/infra';
 import { EMPTY, mergeMap } from 'rxjs';
 
-import { isBackendError, isNetworkError } from '../error';
+import type { WorkspaceService } from '../../workspace';
 import type { WorkspaceServerService } from '../services/workspace-server';
 import { SubscriptionStore } from '../stores/subscription';
-
 export type SubscriptionType = NonNullable<
   SubscriptionQuery['currentUser']
 >['subscriptions'][number];
@@ -124,13 +122,7 @@ export class WorkspaceSubscription extends Entity {
           subscription: subscription,
         };
       }).pipe(
-        backoffRetry({
-          when: isNetworkError,
-          count: Infinity,
-        }),
-        backoffRetry({
-          when: isBackendError,
-        }),
+        smartRetry(),
         mergeMap(data => {
           if (data && data.subscription && data.workspaceId && this.store) {
             this.store.setCachedWorkspaceSubscription(

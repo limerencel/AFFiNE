@@ -7,15 +7,15 @@ import {
 import { SettingRow } from '@affine/component/setting-components';
 import { EditorSettingService } from '@affine/core/modules/editor-setting';
 import { useI18n } from '@affine/i18n';
-import { LayoutType, MindmapStyle } from '@blocksuite/affine/blocks';
-import type { Doc } from '@blocksuite/affine/store';
+import { getSurfaceBlock } from '@blocksuite/affine/blocks/surface';
+import { LayoutType, MindmapStyle } from '@blocksuite/affine/model';
+import type { Store } from '@blocksuite/affine/store';
 import { useFramework, useLiveData } from '@toeverything/infra';
 import { useCallback, useMemo } from 'react';
 
 import { DropdownMenu } from '../menu';
 import { menuTrigger, settingWrapper } from '../style.css';
 import { EdgelessSnapshot } from './snapshot';
-import { getSurfaceBlock } from './utils';
 
 const MINDMAP_STYLES = [
   {
@@ -93,7 +93,7 @@ export const MindMapSettings = () => {
     });
   }, [editorSetting, settings]);
 
-  const getElements = useCallback((doc: Doc) => {
+  const getElements = useCallback((doc: Store) => {
     const surface = getSurfaceBlock(doc);
     return surface?.getElementsByType('mindmap') || [];
   }, []);

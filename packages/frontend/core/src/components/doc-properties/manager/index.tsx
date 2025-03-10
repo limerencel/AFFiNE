@@ -6,16 +6,14 @@ import {
   useDraggable,
   useDropTarget,
 } from '@affine/component';
+import type { DocCustomPropertyInfo } from '@affine/core/modules/db';
+import { DocsService } from '@affine/core/modules/doc';
+import { GuardService } from '@affine/core/modules/permissions';
+import { WorkspaceService } from '@affine/core/modules/workspace';
 import type { AffineDNDData } from '@affine/core/types/dnd';
 import { useI18n } from '@affine/i18n';
 import { MoreHorizontalIcon } from '@blocksuite/icons/rc';
-import {
-  type DocCustomPropertyInfo,
-  DocsService,
-  useLiveData,
-  useService,
-  WorkspaceService,
-} from '@toeverything/infra';
+import { useLiveData, useService } from '@toeverything/infra';
 import clsx from 'clsx';
 import { type HTMLProps, useCallback, useState } from 'react';
 
@@ -30,14 +28,23 @@ import * as styles from './styles.css';
 const PropertyItem = ({
   propertyInfo,
   defaultOpenEditMenu,
+  onPropertyInfoChange,
 }: {
   propertyInfo: DocCustomPropertyInfo;
   defaultOpenEditMenu?: boolean;
+  onPropertyInfoChange?: (
+    field: keyof DocCustomPropertyInfo,
+    value: string
+  ) => void;
 }) => {
   const t = useI18n();
+  const guardService = useService(GuardService);
   const workspaceService = useService(WorkspaceService);
   const docsService = useService(DocsService);
   const [moreMenuOpen, setMoreMenuOpen] = useState(defaultOpenEditMenu);
+  const canEditPropertyInfo = useLiveData(
+    guardService.can$('Workspace_Properties_Update')
+  );
 
   const typeInfo = isSupportedDocPropertyType(propertyInfo.type)
     ? DocPropertyTypes[propertyInfo.type]
@@ -49,6 +56,7 @@ const PropertyItem = ({
 
   const { dragRef } = useDraggable<AffineDNDData>(
     () => ({
+      canDrag: canEditPropertyInfo,
       data: {
         entity: {
           type: 'custom-property',
@@ -60,13 +68,14 @@ const PropertyItem = ({
         },
       },
     }),
-    [propertyInfo, workspaceService]
+    [propertyInfo, workspaceService, canEditPropertyInfo]
   );
 
   const { dropTargetRef, closestEdge } = useDropTarget<AffineDNDData>(
     () => ({
       canDrop(data) {
         return (
+          canEditPropertyInfo &&
           data.source.data.entity?.type === 'custom-property' &&
           data.source.data.from?.at === 'doc-property:manager' &&
           data.source.data.from?.workspaceId ===
@@ -95,7 +104,7 @@ const PropertyItem = ({
         });
       },
     }),
-    [docsService, propertyInfo, workspaceService]
+    [docsService, propertyInfo, workspaceService, canEditPropertyInfo]
   );
 
   return (
@@ -133,7 +142,13 @@ const PropertyItem = ({
             onOpenChange: setMoreMenuOpen,
             modal: true,
           }}
-          items={<EditDocPropertyMenuItems propertyId={propertyInfo.id} />}
+          items={
+            <EditDocPropertyMenuItems
+              propertyId={propertyInfo.id}
+              onPropertyInfoChange={onPropertyInfoChange}
+              readonly={!canEditPropertyInfo}
+            />
+          }
         >
           <IconButton size={20} iconClassName={styles.itemMore}>
             <MoreHorizontalIcon />
@@ -148,8 +163,16 @@ const PropertyItem = ({
 export const DocPropertyManager = ({
   className,
   defaultOpenEditMenuPropertyId,
+  onPropertyInfoChange,
   ...props
-}: HTMLProps<HTMLDivElement> & { defaultOpenEditMenuPropertyId?: string }) => {
+}: HTMLProps<HTMLDivElement> & {
+  defaultOpenEditMenuPropertyId?: string;
+  onPropertyInfoChange?: (
+    property: DocCustomPropertyInfo,
+    field: keyof DocCustomPropertyInfo,
+    value: string
+  ) => void;
+}) => {
   const docsService = useService(DocsService);
 
   const properties = useLiveData(docsService.propertyList.sortedProperties$);
@@ -163,6 +186,9 @@ export const DocPropertyManager = ({
             defaultOpenEditMenuPropertyId === propertyInfo.id
           }
           key={propertyInfo.id}
+          onPropertyInfoChange={(...args) =>
+            onPropertyInfoChange?.(propertyInfo, ...args)
+          }
         />
       ))}
     </div>

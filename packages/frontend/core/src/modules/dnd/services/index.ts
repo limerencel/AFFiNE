@@ -1,23 +1,32 @@
 import {
   type ExternalGetDataFeedbackArgs,
   type fromExternalData,
+  monitorForElements,
+  type MonitorGetFeedback,
   type toExternalData,
 } from '@affine/component';
-import { createPageModeSpecs } from '@affine/core/components/blocksuite/block-suite-editor/specs/page';
 import type { AffineDNDData } from '@affine/core/types/dnd';
 import { BlockStdScope } from '@blocksuite/affine/block-std';
-import type { DNDAPIExtension } from '@blocksuite/affine/blocks';
-import { DndApiExtensionIdentifier } from '@blocksuite/affine/blocks';
-import { type SliceSnapshot } from '@blocksuite/affine/store';
-import type { DocsService, WorkspaceService } from '@toeverything/infra';
+import {
+  DNDAPIExtension,
+  DndApiExtensionIdentifier,
+} from '@blocksuite/affine/shared/services';
+import type { SliceSnapshot } from '@blocksuite/affine/store';
+import type { DragBlockPayload } from '@blocksuite/affine/widgets/drag-handle';
 import { Service } from '@toeverything/infra';
 
+import type { DocsService } from '../../doc';
 import { resolveLinkToDoc } from '../../navigation';
+import type { WorkspaceService } from '../../workspace';
 
 type Entity = AffineDNDData['draggable']['entity'];
 type EntityResolver = (data: string) => Entity | null;
 
 type ExternalDragPayload = ExternalGetDataFeedbackArgs['source'];
+
+type MixedDNDData = AffineDNDData & {
+  draggable: DragBlockPayload;
+};
 
 export class DndService extends Service {
   constructor(
@@ -39,33 +48,124 @@ export class DndService extends Service {
         if (source.types.includes(type)) {
           const stringData = source.getStringData(type);
           if (stringData) {
-            return resolver(stringData);
+            const entity = resolver(stringData);
+            if (entity) {
+              return {
+                entity,
+                from: {
+                  at: 'external',
+                },
+              };
+            }
           }
         }
         return null;
       });
     });
+
+    this.setupBlocksuiteAdapter();
+  }
+
+  private setupBlocksuiteAdapter() {
+    /**
+     * Migrate from affine to blocksuite
+     * For now, we only support doc
+     */
+    const affineToBlocksuite = (args: MonitorGetFeedback<MixedDNDData>) => {
+      const data = args.source.data;
+      if (data.entity && !data.bsEntity) {
+        if (data.entity.type !== 'doc') {
+          return;
+        }
+        const dndAPI = this.getBlocksuiteDndAPI();
+        if (!dndAPI) {
+          return;
+        }
+        const snapshotSlice = dndAPI.fromEntity({
+          docId: data.entity.id,
+          flavour: 'affine:embed-linked-doc',
+        });
+        if (!snapshotSlice) {
+          return;
+        }
+        data.bsEntity = {
+          type: 'blocks',
+          modelIds: [],
+          snapshot: snapshotSlice,
+        };
+      }
+    };
+
+    /**
+     * Migrate from blocksuite to affine
+     */
+    const blocksuiteToAffine = (args: MonitorGetFeedback<MixedDNDData>) => {
+      const data = args.source.data;
+      if (!data.entity && data.bsEntity) {
+        if (data.bsEntity.type !== 'blocks' || !data.bsEntity.snapshot) {
+          return;
+        }
+        const dndAPI = this.getBlocksuiteDndAPI();
+        if (!dndAPI) {
+          return;
+        }
+        const entity = this.resolveBlockSnapshot(data.bsEntity.snapshot);
+        if (!entity) {
+          return;
+        }
+        data.entity = entity;
+      }
+    };
+
+    function adaptDragEvent(args: MonitorGetFeedback<MixedDNDData>) {
+      affineToBlocksuite(args);
+      blocksuiteToAffine(args);
+    }
+
+    function canMonitor(args: MonitorGetFeedback<MixedDNDData>) {
+      return (
+        args.source.data.entity?.type === 'doc' ||
+        (args.source.data.bsEntity?.type === 'blocks' &&
+          !!args.source.data.bsEntity.snapshot)
+      );
+    }
+
+    this.disposables.push(
+      monitorForElements({
+        canMonitor: (args: MonitorGetFeedback<MixedDNDData>) => {
+          if (canMonitor(args)) {
+            // HACK ahead:
+            // canMonitor shall be used a pure function, which means
+            // we may need to adapt the drag event to make sure the data is applied onDragStart.
+            // However, canMonitor in blocksuite is also called BEFORE onDragStart,
+            // so we need to adapt it here in onMonitor
+            adaptDragEvent(args);
+            return true;
+          }
+          return false;
+        },
+      })
+    );
   }
 
   private readonly resolvers: ((
     source: ExternalDragPayload
-  ) => Entity | null)[] = [];
+  ) => AffineDNDData['draggable'] | null)[] = [];
 
-  private _blocksuiteDndAPI: DNDAPIExtension | null = null;
+  getBlocksuiteDndAPI(sourceDocId?: string) {
+    const collection = this.workspaceService.workspace.docCollection;
+    sourceDocId ??= collection.docs.keys().next().value;
+    const doc = sourceDocId ? collection.getDoc(sourceDocId) : null;
 
-  get blocksuiteDndAPI() {
-    if (this._blocksuiteDndAPI) {
-      return this._blocksuiteDndAPI;
+    if (!doc) {
+      return null;
     }
 
-    const collection = this.workspaceService.workspace.docCollection;
-    const doc = collection.createDoc();
     const std = new BlockStdScope({
-      doc,
-      extensions: createPageModeSpecs(this.framework),
+      store: doc,
+      extensions: [DNDAPIExtension],
     });
     const dndAPI = std.get(DndApiExtensionIdentifier);
-    this._blocksuiteDndAPI = dndAPI;
     return dndAPI;
   }
 
@@ -76,29 +176,23 @@ export class DndService extends Service {
     if (!isDropEvent) {
       return {};
     }
-    const from: AffineDNDData['draggable']['from'] = {
-      at: 'external',
-    };
 
-    let entity: Entity | null = null;
+    let resolved: AffineDNDData['draggable'] | null = null;
 
     // in the order of the resolvers instead of the order of the types
     for (const resolver of this.resolvers) {
       const candidate = resolver(args.source);
       if (candidate) {
-        entity = candidate;
+        resolved = candidate;
         break;
       }
     }
 
-    if (!entity) {
+    if (!resolved) {
       return {}; // no resolver can handle this data
     }
 
-    return {
-      from,
-      entity,
-    };
+    return resolved;
   };
 
   toExternalData: toExternalData<AffineDNDData> = (args, data) => {
@@ -113,7 +207,13 @@ export class DndService extends Service {
       return {};
     }
 
-    const snapshotSlice = this.blocksuiteDndAPI.fromEntity({
+    const dndAPI = this.getBlocksuiteDndAPI(normalData.entity.id);
+
+    if (!dndAPI) {
+      return {};
+    }
+
+    const snapshotSlice = dndAPI.fromEntity({
       docId: normalData.entity.id,
       flavour: 'affine:embed-linked-doc',
     });
@@ -122,10 +222,10 @@ export class DndService extends Service {
       return {};
     }
 
-    const encoded = this.blocksuiteDndAPI.encodeSnapshot(snapshotSlice);
+    const encoded = dndAPI.encodeSnapshot(snapshotSlice);
 
     return {
-      [this.blocksuiteDndAPI.mimeType]: encoded,
+      [dndAPI.mimeType]: encoded,
     };
   };
 
@@ -154,18 +254,34 @@ export class DndService extends Service {
     return null;
   };
 
+  /**
+   * @deprecated Blocksuite DND is now using pragmatic-dnd as well
+   */
   private readonly resolveBlocksuiteExternalData = (
     source: ExternalDragPayload
-  ): Entity | null => {
-    const encoded = source.getStringData(this.blocksuiteDndAPI.mimeType);
+  ): AffineDNDData['draggable'] | null => {
+    const dndAPI = this.getBlocksuiteDndAPI();
+    if (!dndAPI) {
+      return null;
+    }
+    const encoded = source.getStringData(dndAPI.mimeType);
     if (!encoded) {
       return null;
     }
-    const snapshot = this.blocksuiteDndAPI.decodeSnapshot(encoded);
+    const snapshot = dndAPI.decodeSnapshot(encoded);
     if (!snapshot) {
       return null;
     }
-    return this.resolveBlockSnapshot(snapshot);
+    const entity = this.resolveBlockSnapshot(snapshot);
+    if (!entity) {
+      return null;
+    }
+    return {
+      entity,
+      from: {
+        at: 'blocksuite-editor',
+      },
+    };
   };
 
   private readonly resolveHTML: EntityResolver = html => {

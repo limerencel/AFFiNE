@@ -1,8 +1,9 @@
-use chrono::NaiveDateTime;
+use std::ops::Deref;
+
+use chrono::{DateTime, NaiveDateTime};
 use sqlx::{QueryBuilder, Row};
 
-use super::storage::{Result, SqliteDocStorage};
-use super::{DocClock, DocRecord, DocUpdate};
+use super::{error::Result, storage::SqliteDocStorage, DocClock, DocRecord, DocUpdate};
 
 struct Meta {
   space_id: String,
@@ -64,11 +65,44 @@ impl SqliteDocStorage {
     doc_id: String,
     update: Update,
   ) -> Result<NaiveDateTime> {
-    let timestamp = chrono::Utc::now().naive_utc();
+    let mut timestamp = DateTime::from_timestamp_millis(chrono::Utc::now().timestamp_millis())
+      .unwrap()
+      .naive_utc();
+
+    let mut tried = 0;
+
+    // Keep trying with incremented timestamps until success
+    loop {
+      match self
+        .try_insert_update_with_timestamp(&doc_id, update.as_ref(), timestamp)
+        .await
+      {
+        Ok(()) => break,
+        Err(e) => {
+          if tried > 10 {
+            return Err(e.into());
+          }
+
+          // Increment timestamp by 1ms and retry
+          timestamp += chrono::Duration::milliseconds(1);
+          tried += 1;
+        }
+      }
+    }
+
+    Ok(timestamp)
+  }
+
+  async fn try_insert_update_with_timestamp(
+    &self,
+    doc_id: &str,
+    update: &[u8],
+    timestamp: NaiveDateTime,
+  ) -> sqlx::Result<()> {
     let mut tx = self.pool.begin().await?;
 
     sqlx::query(r#"INSERT INTO updates (doc_id, data, created_at) VALUES ($1, $2, $3);"#)
-      .bind(&doc_id)
+      .bind(doc_id)
       .bind(update.as_ref())
       .bind(timestamp)
       .execute(&mut *tx)
@@ -80,24 +114,26 @@ impl SqliteDocStorage {
     ON CONFLICT(doc_id)
     DO UPDATE SET timestamp=$2;"#,
     )
-    .bind(&doc_id)
+    .bind(doc_id)
     .bind(timestamp)
     .execute(&mut *tx)
     .await?;
 
     tx.commit().await?;
 
-    Ok(timestamp)
+    Ok(())
   }
 
   pub async fn get_doc_snapshot(&self, doc_id: String) -> Result<Option<DocRecord>> {
-    sqlx::query_as!(
+    let result = sqlx::query_as!(
       DocRecord,
-      "SELECT doc_id, data, updated_at as timestamp FROM snapshots WHERE doc_id = ?",
+      "SELECT doc_id, data as bin, updated_at as timestamp FROM snapshots WHERE doc_id = ?",
       doc_id
     )
     .fetch_optional(&self.pool)
-    .await
+    .await?;
+
+    Ok(result)
   }
 
   pub async fn set_doc_snapshot(&self, snapshot: DocRecord) -> Result<bool> {
@@ -110,7 +146,7 @@ impl SqliteDocStorage {
     WHERE updated_at <= $3;"#,
     )
     .bind(snapshot.doc_id)
-    .bind(snapshot.data.as_ref())
+    .bind(snapshot.bin.deref())
     .bind(snapshot.timestamp)
     .execute(&self.pool)
     .await?;
@@ -119,13 +155,15 @@ impl SqliteDocStorage {
   }
 
   pub async fn get_doc_updates(&self, doc_id: String) -> Result<Vec<DocUpdate>> {
-    sqlx::query_as!(
+    let result = sqlx::query_as!(
       DocUpdate,
-      "SELECT doc_id, created_at, data FROM updates WHERE doc_id = ?",
+      "SELECT doc_id, created_at as timestamp, data as bin FROM updates WHERE doc_id = ?",
       doc_id
     )
     .fetch_all(&self.pool)
-    .await
+    .await?;
+
+    Ok(result)
   }
 
   pub async fn mark_updates_merged(
@@ -169,7 +207,9 @@ impl SqliteDocStorage {
       .execute(&mut *tx)
       .await?;
 
-    tx.commit().await
+    tx.commit().await?;
+
+    Ok(())
   }
 
   pub async fn get_doc_clocks(&self, after: Option<NaiveDateTime>) -> Result<Vec<DocClock>> {
@@ -193,20 +233,21 @@ impl SqliteDocStorage {
   }
 
   pub async fn get_doc_clock(&self, doc_id: String) -> Result<Option<DocClock>> {
-    sqlx::query_as!(
+    let result = sqlx::query_as!(
       DocClock,
       "SELECT doc_id, timestamp FROM clocks WHERE doc_id = ?",
       doc_id
     )
     .fetch_optional(&self.pool)
-    .await
+    .await?;
+
+    Ok(result)
   }
 }
 
 #[cfg(test)]
 mod tests {
   use chrono::{DateTime, Utc};
-  use napi::bindgen_prelude::Uint8Array;
 
   use super::*;
 
@@ -252,7 +293,7 @@ mod tests {
     storage
       .set_doc_snapshot(DocRecord {
         doc_id: "test".to_string(),
-        data: Uint8Array::from(vec![0, 0]),
+        bin: vec![0, 0],
         timestamp: Utc::now().naive_utc(),
       })
       .await
@@ -283,6 +324,7 @@ mod tests {
     let clocks = storage
       .get_peer_pulled_remote_clock("remote".to_string(), "new_id".to_string())
       .await
+      .unwrap()
       .unwrap();
 
     assert_eq!(clocks.doc_id, "new_id");
@@ -316,7 +358,7 @@ mod tests {
 
     assert_eq!(result.len(), 4);
     assert_eq!(
-      result.iter().map(|u| u.data.as_ref()).collect::<Vec<_>>(),
+      result.iter().map(|u| u.bin.as_ref()).collect::<Vec<_>>(),
       updates
     );
   }
@@ -331,7 +373,7 @@ mod tests {
 
     let snapshot = DocRecord {
       doc_id: "test".to_string(),
-      data: Uint8Array::from(vec![0, 0]),
+      bin: vec![0, 0],
       timestamp: Utc::now().naive_utc(),
     };
 
@@ -340,7 +382,7 @@ mod tests {
     let result = storage.get_doc_snapshot("test".to_string()).await.unwrap();
 
     assert!(result.is_some());
-    assert_eq!(result.unwrap().data.as_ref(), vec![0, 0]);
+    assert_eq!(result.unwrap().bin.as_ref(), vec![0, 0]);
   }
 
   #[tokio::test]
@@ -349,7 +391,7 @@ mod tests {
 
     let snapshot = DocRecord {
       doc_id: "test".to_string(),
-      data: Uint8Array::from(vec![0, 0]),
+      bin: vec![0, 0],
       timestamp: Utc::now().naive_utc(),
     };
 
@@ -358,11 +400,11 @@ mod tests {
     let result = storage.get_doc_snapshot("test".to_string()).await.unwrap();
 
     assert!(result.is_some());
-    assert_eq!(result.unwrap().data.as_ref(), vec![0, 0]);
+    assert_eq!(result.unwrap().bin.as_ref(), vec![0, 0]);
 
     let snapshot = DocRecord {
       doc_id: "test".to_string(),
-      data: Uint8Array::from(vec![0, 1]),
+      bin: vec![0, 1],
       timestamp: DateTime::from_timestamp_millis(Utc::now().timestamp_millis() - 1000)
         .unwrap()
         .naive_utc(),
@@ -374,7 +416,7 @@ mod tests {
     let result = storage.get_doc_snapshot("test".to_string()).await.unwrap();
 
     assert!(result.is_some());
-    assert_eq!(result.unwrap().data.as_ref(), vec![0, 0]);
+    assert_eq!(result.unwrap().bin.as_ref(), vec![0, 0]);
   }
 
   #[tokio::test]
@@ -434,7 +476,7 @@ mod tests {
         updates
           .iter()
           .skip(1)
-          .map(|u| u.created_at)
+          .map(|u| u.timestamp)
           .collect::<Vec<_>>(),
       )
       .await

@@ -1,9 +1,18 @@
-import { ChatPanel } from '@affine/core/blocksuite/presets/ai';
+import { ChatPanel } from '@affine/core/blocksuite/ai';
+import type { AffineEditorContainer } from '@affine/core/blocksuite/block-suite-editor';
+import { enableFootnoteConfigExtension } from '@affine/core/blocksuite/extensions';
+import { AINetworkSearchService } from '@affine/core/modules/ai-button/services/network-search';
+import { DocDisplayMetaService } from '@affine/core/modules/doc-display-meta';
+import { DocSearchMenuService } from '@affine/core/modules/doc-search-menu/services';
+import { WorkbenchService } from '@affine/core/modules/workbench';
+import { WorkspaceService } from '@affine/core/modules/workspace';
+import { RefNodeSlotsProvider } from '@blocksuite/affine/rich-text';
+import { DocModeProvider } from '@blocksuite/affine/shared/services';
 import {
-  DocModeProvider,
-  RefNodeSlotsProvider,
-} from '@blocksuite/affine/blocks';
-import type { AffineEditorContainer } from '@blocksuite/affine/presets';
+  createSignalFromObservable,
+  SpecProvider,
+} from '@blocksuite/affine/shared/utils';
+import { useFramework } from '@toeverything/infra';
 import { forwardRef, useEffect, useRef } from 'react';
 
 import * as styles from './chat.css';
@@ -20,6 +29,7 @@ export const EditorChatPanel = forwardRef(function EditorChatPanel(
 ) {
   const chatPanelRef = useRef<ChatPanel | null>(null);
   const containerRef = useRef<HTMLDivElement | null>(null);
+  const framework = useFramework();
 
   useEffect(() => {
     if (onLoad && chatPanelRef.current) {
@@ -44,6 +54,52 @@ export const EditorChatPanel = forwardRef(function EditorChatPanel(
       chatPanelRef.current = new ChatPanel();
       chatPanelRef.current.host = editor.host;
       chatPanelRef.current.doc = editor.doc;
+      const searchService = framework.get(AINetworkSearchService);
+      const docDisplayMetaService = framework.get(DocDisplayMetaService);
+      const workspaceService = framework.get(WorkspaceService);
+      const docSearchMenuService = framework.get(DocSearchMenuService);
+      const workbench = framework.get(WorkbenchService).workbench;
+      chatPanelRef.current.appSidebarConfig = {
+        getWidth: () => {
+          const width$ = workbench.sidebarWidth$;
+          return createSignalFromObservable(width$, 0);
+        },
+        isOpen: () => {
+          const open$ = workbench.sidebarOpen$;
+          return createSignalFromObservable(open$, true);
+        },
+      };
+      chatPanelRef.current.networkSearchConfig = {
+        visible: searchService.visible,
+        enabled: searchService.enabled,
+        setEnabled: searchService.setEnabled,
+      };
+      chatPanelRef.current.docDisplayConfig = {
+        getIcon: (docId: string) => {
+          return docDisplayMetaService.icon$(docId, { type: 'lit' }).value;
+        },
+        getTitle: (docId: string) => {
+          const title$ = docDisplayMetaService.title$(docId);
+          return createSignalFromObservable(title$, '');
+        },
+        getDoc: (docId: string) => {
+          const doc = workspaceService.workspace.docCollection.getDoc(docId);
+          return doc;
+        },
+      };
+      chatPanelRef.current.docSearchMenuConfig = {
+        getDocMenuGroup: (query, action, abortSignal) => {
+          return docSearchMenuService.getDocMenuGroup(
+            query,
+            action,
+            abortSignal
+          );
+        },
+      };
+      const previewSpecBuilder = enableFootnoteConfigExtension(
+        SpecProvider._.getSpec('preview:page')
+      );
+      chatPanelRef.current.previewSpecBuilder = previewSpecBuilder;
       containerRef.current?.append(chatPanelRef.current);
     } else {
       chatPanelRef.current.host = editor.host;
@@ -53,8 +109,10 @@ export const EditorChatPanel = forwardRef(function EditorChatPanel(
     const docModeService = editor.host.std.get(DocModeProvider);
     const refNodeService = editor.host.std.getOptional(RefNodeSlotsProvider);
     const disposable = [
-      refNodeService?.docLinkClicked.on(() => {
-        (chatPanelRef.current as ChatPanel).doc = editor.doc;
+      refNodeService?.docLinkClicked.on(({ host }) => {
+        if (host === editor.host) {
+          (chatPanelRef.current as ChatPanel).doc = editor.doc;
+        }
       }),
       docModeService?.onPrimaryModeChange(() => {
         if (!editor.host) return;
@@ -63,7 +121,7 @@ export const EditorChatPanel = forwardRef(function EditorChatPanel(
     ];
 
     return () => disposable.forEach(d => d?.dispose());
-  }, [editor]);
+  }, [editor, framework]);
 
   return <div className={styles.root} ref={containerRef} />;
 });

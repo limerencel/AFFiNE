@@ -1,16 +1,16 @@
 import type { DeltaInsert } from '@blocksuite/affine/inline';
-import type { DocCollection } from '@blocksuite/affine/store';
-import type { AffineTextAttributes } from '@blocksuite/affine-shared/types';
+import type { AffineTextAttributes } from '@blocksuite/affine/shared/types';
+import { Text, type Workspace } from '@blocksuite/affine/store';
 import { useCallback } from 'react';
 
-export function useReferenceLinkHelper(docCollection: DocCollection) {
+export function useReferenceLinkHelper(docCollection: Workspace) {
   const addReferenceLink = useCallback(
     (pageId: string, referenceId: string) => {
       const page = docCollection?.getDoc(pageId);
       if (!page) {
         return;
       }
-      const text = new page.Text([
+      const text = new Text([
         {
           insert: ' ',
           attributes: {

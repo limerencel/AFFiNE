@@ -8,32 +8,28 @@ import {
 } from '@affine/component';
 import { useNavigateHelper } from '@affine/core/components/hooks/use-navigate-helper';
 import { WorkspaceDialogService } from '@affine/core/modules/dialogs';
+import type { DocRecord } from '@affine/core/modules/doc';
 import type { Tag } from '@affine/core/modules/tag';
 import { TagService } from '@affine/core/modules/tag';
 import { WorkbenchService } from '@affine/core/modules/workbench';
-import { isNewTabTrigger } from '@affine/core/utils';
+import { WorkspaceService } from '@affine/core/modules/workspace';
+import { inferOpenMode } from '@affine/core/utils';
 import type { Collection } from '@affine/env/filter';
 import { useI18n } from '@affine/i18n';
 import { track } from '@affine/track';
-import type { DocMode } from '@blocksuite/affine/blocks';
+import type { DocMode } from '@blocksuite/affine/model';
 import {
   ArrowDownSmallIcon,
   SearchIcon,
   ViewLayersIcon,
 } from '@blocksuite/icons/rc';
-import type { DocRecord } from '@toeverything/infra';
-import {
-  useLiveData,
-  useService,
-  useServices,
-  WorkspaceService,
-} from '@toeverything/infra';
+import { useLiveData, useService, useServices } from '@toeverything/infra';
 import clsx from 'clsx';
 import { useCallback, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 
+import { usePageHelper } from '../../../blocksuite/block-suite-page-list/utils';
 import { CollectionService } from '../../../modules/collection';
-import { usePageHelper } from '../../blocksuite/block-suite-page-list/utils';
 import { createTagFilter } from '../filter/utils';
 import { SaveAsCollectionButton } from '../view';
 import * as styles from './page-list-header.css';
@@ -96,15 +92,11 @@ export const PageListHeader = () => {
       <PageListNewPageButton
         size="small"
         testId="new-page-button-trigger"
-        onCreateEdgeless={e =>
-          createEdgeless(isNewTabTrigger(e) ? 'new-tab' : true)
-        }
+        onCreateEdgeless={e => createEdgeless({ at: inferOpenMode(e) })}
         onCreatePage={e =>
-          createPage('page' as DocMode, isNewTabTrigger(e) ? 'new-tab' : true)
+          createPage('page' as DocMode, { at: inferOpenMode(e) })
         }
-        onCreateDoc={e =>
-          createPage(undefined, isNewTabTrigger(e) ? 'new-tab' : true)
-        }
+        onCreateDoc={e => createPage(undefined, { at: inferOpenMode(e) })}
         onImportFile={onImportFile}
       >
         <div className={styles.buttonText}>{t['New Page']()}</div>

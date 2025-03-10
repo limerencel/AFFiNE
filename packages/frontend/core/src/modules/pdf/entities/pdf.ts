@@ -1,4 +1,4 @@
-import type { AttachmentBlockModel } from '@blocksuite/affine/blocks';
+import type { AttachmentBlockModel } from '@blocksuite/affine/model';
 import { Entity, LiveData, ObjectPool } from '@toeverything/infra';
 import { catchError, from, map, of, startWith, switchMap } from 'rxjs';
 
@@ -49,7 +49,6 @@ export class PDF extends Entity<AttachmentBlockModel> {
 
   constructor() {
     super();
-    this.renderer.listen();
     this.disposables.push(() => this.pages.clear());
   }
 

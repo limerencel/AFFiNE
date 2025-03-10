@@ -16,9 +16,11 @@ type AppEvents =
 type NavigationEvents =
   | 'openInNewTab'
   | 'openInSplitView'
+  | 'openInPeekView'
   | 'switchTab'
   | 'switchSplitView'
   | 'tabAction'
+  | 'splitViewAction'
   | 'navigate'
   | 'goBack'
   | 'goForward'
@@ -38,6 +40,7 @@ type WorkspaceEvents =
   | 'openWorkspaceList';
 type DocEvents =
   | 'createDoc'
+  | 'quickStart'
   | 'renameDoc'
   | 'linkDoc'
   | 'deleteDoc'
@@ -48,15 +51,24 @@ type DocEvents =
   | 'copyBlockToLink'
   | 'bookmark'
   | 'editProperty'
+  | 'editPropertyMeta'
   | 'addProperty';
-type EditorEvents = 'bold' | 'italic' | 'underline' | 'strikeThrough';
+type EditorEvents =
+  | 'bold'
+  | 'italic'
+  | 'underline'
+  | 'strikeThrough'
+  | 'foldEdgelessNote';
 // END SECTION
 
 // SECTION: setting events
 type SettingEvents =
   | 'openSettings'
   | 'changeAppSetting'
-  | 'changeEditorSetting';
+  | 'changeEditorSetting'
+  | 'recoverArchivedWorkspace'
+  | 'deleteArchivedWorkspace'
+  | 'deleteUnusedBlob';
 // END SECTION
 
 // SECTION: organize events
@@ -86,6 +98,8 @@ type OrganizeEvents =
   | FolderEvents
   | TagEvents
   | FavoriteEvents;
+
+type DNDEvents = 'dragStart' | 'drag' | 'drop';
 // END SECTION
 
 // SECTION: cloud events
@@ -94,6 +108,10 @@ type ShareEvents =
   | 'copyShareLink'
   | 'openShareMenu'
   | 'share';
+type DocRoleEvents =
+  | 'modifyDocDefaultRole'
+  | 'modifyUserDocRole'
+  | 'inviteUserDocRole';
 type AuthEvents =
   | 'requestSignIn'
   | 'signIn'
@@ -114,6 +132,19 @@ type PaymentEvents =
   | 'confirmResumingSubscription';
 // END SECTION
 
+// SECTION: attachment
+type AttachmentEvents =
+  | 'openAttachmentInFullscreen'
+  | 'openAttachmentInNewTab'
+  | 'openAttachmentInPeekView'
+  | 'openAttachmentInSplitView'
+  | 'openPDFRendererFail';
+// END SECTION
+
+// SECTION: template
+type TemplateEvents = 'openTemplateListMenu';
+// END SECTION
+
 type UserEvents =
   | GeneralEvents
   | AppEvents
@@ -125,9 +156,13 @@ type UserEvents =
   | CmdkEvents
   | OrganizeEvents
   | ShareEvents
+  | DocRoleEvents
   | AuthEvents
   | AccountEvents
-  | PaymentEvents;
+  | PaymentEvents
+  | DNDEvents
+  | AttachmentEvents
+  | TemplateEvents;
 interface PageDivision {
   [page: string]: {
     [segment: string]: {
@@ -151,16 +186,34 @@ const PageEvents = {
       auth: ['requestSignIn', 'signIn', 'signedIn', 'signInFail', 'signOut'],
     },
     sharePanel: {
-      $: ['createShareLink', 'copyShareLink', 'export', 'open'],
+      $: [
+        'createShareLink',
+        'copyShareLink',
+        'export',
+        'open',
+        'modifyDocDefaultRole',
+        'modifyUserDocRole',
+        'inviteUserDocRole',
+      ],
     },
     docInfoPanel: {
       $: ['open'],
-      property: ['editProperty', 'addProperty'],
+      property: ['editProperty', 'addProperty', 'editPropertyMeta'],
       databaseProperty: ['editProperty'],
     },
     settingsPanel: {
       menu: ['openSettings'],
-      workspace: ['viewPlans', 'export', 'addProperty'],
+      workspace: [
+        'viewPlans',
+        'export',
+        'addProperty',
+        'editPropertyMeta',
+        'deleteUnusedBlob',
+      ],
+      archivedWorkspaces: [
+        'recoverArchivedWorkspace',
+        'deleteArchivedWorkspace',
+      ],
       profileAndBadge: ['viewPlans'],
       accountUsage: ['viewPlans'],
       accountSettings: ['uploadAvatar', 'removeAvatar', 'updateUserName'],
@@ -209,12 +262,18 @@ const PageEvents = {
         'openInNewTab',
         'openInSplitView',
         'toggleFavorite',
+        'drop',
       ],
-      docs: ['createDoc', 'deleteDoc', 'linkDoc'],
-      collections: ['createDoc', 'addDocToCollection', 'removeOrganizeItem'],
-      folders: ['createDoc'],
-      tags: ['createDoc', 'tagDoc'],
-      favorites: ['createDoc'],
+      docs: ['createDoc', 'deleteDoc', 'linkDoc', 'drop'],
+      collections: [
+        'createDoc',
+        'addDocToCollection',
+        'removeOrganizeItem',
+        'drop',
+      ],
+      folders: ['createDoc', 'drop'],
+      tags: ['createDoc', 'tagDoc', 'drop'],
+      favorites: ['createDoc', 'drop'],
       migrationData: ['openMigrationDataHelp'],
       bottomButtons: [
         'downloadApp',
@@ -248,9 +307,10 @@ const PageEvents = {
       aiAction: ['viewPlans'],
     },
     appTabsHeader: {
-      $: ['tabAction'],
+      $: ['tabAction', 'dragStart'],
     },
     header: {
+      $: ['dragStart'],
       actions: [
         'createDoc',
         'createWorkspace',
@@ -274,6 +334,22 @@ const PageEvents = {
       importModal: ['open'],
       snapshot: ['import', 'export'],
     },
+    attachment: {
+      $: [
+        'openAttachmentInFullscreen',
+        'openAttachmentInNewTab',
+        'openAttachmentInPeekView',
+        'openAttachmentInSplitView',
+        'openPDFRendererFail',
+      ],
+    },
+    sidebar: {
+      newDoc: ['quickStart'],
+      template: ['openTemplateListMenu', 'quickStart'],
+    },
+    splitViewIndicator: {
+      $: ['splitViewAction', 'openInSplitView', 'openInPeekView'],
+    },
   },
   doc: {
     editor: {
@@ -282,19 +358,39 @@ const PageEvents = {
       quickSearch: ['createDoc'],
       formatToolbar: ['bold'],
       pageRef: ['navigate'],
-      toolbar: ['copyBlockToLink'],
+      toolbar: [
+        'copyBlockToLink',
+        'openInSplitView',
+        'openInNewTab',
+        'openInPeekView',
+      ],
       aiActions: ['requestSignIn'],
+      starterBar: ['quickStart', 'openTemplateListMenu'],
     },
     inlineDocInfo: {
       $: ['toggle'],
-      property: ['editProperty', 'addProperty'],
+      property: ['editProperty', 'editPropertyMeta', 'addProperty'],
       databaseProperty: ['editProperty'],
     },
     sidepanel: {
-      property: ['addProperty'],
+      property: ['addProperty', 'editPropertyMeta'],
+    },
+    biDirectionalLinksPanel: {
+      $: ['toggle'],
+      backlinkTitle: ['toggle', 'navigate'],
+      backlinkPreview: ['navigate'],
     },
   },
-  edgeless: {},
+  edgeless: {
+    pageBlock: {
+      headerToolbar: [
+        'toggle',
+        'openDocInfo',
+        'copyBlockToLink',
+        'switchPageMode',
+      ],
+    },
+  },
   workspace: {
     $: {
       $: ['upgradeWorkspace'],
@@ -343,6 +439,18 @@ type PaymentEventArgs = {
   recurring: string;
 };
 
+type AttachmentEventArgs = {
+  type: string; // file type
+};
+
+type DocRoleControlType =
+  | 'Owner'
+  | 'Editor'
+  | 'Manager'
+  | 'Reader'
+  | 'External'
+  | 'Remove';
+
 type TabActionControlType =
   | 'click'
   | 'dnd'
@@ -361,8 +469,11 @@ type TabActionType =
   | 'switchTab'
   | 'separateTabs';
 
+type SplitViewActionControlType = 'menu' | 'indicator';
+type SplitViewActionType = 'open' | 'close' | 'move' | 'closeOthers';
+
 type AuthArgs = {
-  method: 'password' | 'magic-link' | 'oauth';
+  method: 'password' | 'magic-link' | 'oauth' | 'otp';
   provider?: string;
 };
 
@@ -401,15 +512,20 @@ export type EventArgs = {
   deleteOrganizeItem: OrganizeItemArgs;
   orderOrganizeItem: OrganizeItemArgs;
   openInNewTab: { type: OrganizeItemType };
-  openInSplitView: { type: OrganizeItemType };
+  openInSplitView: { type: OrganizeItemType; route?: string };
   tabAction: {
     type?: OrganizeItemType;
     control: TabActionControlType;
     action: TabActionType;
   };
+  splitViewAction: {
+    control: SplitViewActionControlType;
+    action: SplitViewActionType;
+  };
   toggleFavorite: OrganizeItemArgs & { on: boolean };
   toggle: { type: 'collapse' | 'expand' };
   createDoc: { mode?: 'edgeless' | 'page' };
+  quickStart: { with: 'page' | 'edgeless' | 'template' | 'ai' };
   switchPageMode: { mode: 'edgeless' | 'page' };
   createShareLink: { mode: 'edgeless' | 'page' };
   copyShareLink: {
@@ -421,8 +537,24 @@ export type EventArgs = {
     type: string;
   };
   editProperty: { type: string };
+  editPropertyMeta: { type: string; field: string };
   addProperty: { type: string; control: 'at menu' | 'property list' };
   linkDoc: { type: string; journal: boolean };
+  drop: { type: string };
+  dragStart: { type: string };
+  openAttachmentInFullscreen: AttachmentEventArgs;
+  openAttachmentInNewTab: AttachmentEventArgs;
+  openAttachmentInPeekView: AttachmentEventArgs;
+  openAttachmentInSplitView: AttachmentEventArgs;
+  modifyUserDocRole: {
+    control: DocRoleControlType;
+  };
+  modifyDocDefaultRole: {
+    control: DocRoleControlType;
+  };
+  inviteUserDocRole: {
+    control: 'member list';
+  };
 };
 
 // for type checking

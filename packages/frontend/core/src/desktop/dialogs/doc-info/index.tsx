@@ -1,9 +1,9 @@
 import { Modal, Scrollable } from '@affine/component';
-import { BlocksuiteHeaderTitle } from '@affine/core/components/blocksuite/block-suite-header/title';
+import { BlocksuiteHeaderTitle } from '@affine/core/blocksuite/block-suite-header/title';
 import type { DialogComponentProps } from '@affine/core/modules/dialogs';
 import type { WORKSPACE_DIALOG_SCHEMA } from '@affine/core/modules/dialogs/constant';
-import type { Doc } from '@toeverything/infra';
-import { DocsService, FrameworkScope, useService } from '@toeverything/infra';
+import { type Doc, DocsService } from '@affine/core/modules/doc';
+import { FrameworkScope, useService } from '@toeverything/infra';
 import { useEffect, useState } from 'react';
 
 import { InfoTable } from './info-modal';
@@ -47,10 +47,7 @@ export const DocInfoDialog = ({
               className={styles.titleContainer}
               data-testid="info-modal-title"
             >
-              <BlocksuiteHeaderTitle
-                docId={docId}
-                className={styles.titleStyle}
-              />
+              <BlocksuiteHeaderTitle className={styles.titleStyle} />
             </div>
             <InfoTable docId={docId} onClose={() => close()} />
           </Scrollable.Viewport>

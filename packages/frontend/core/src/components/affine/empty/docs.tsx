@@ -1,11 +1,12 @@
 import { TagService } from '@affine/core/modules/tag';
-import { isNewTabTrigger } from '@affine/core/utils';
+import { WorkspaceService } from '@affine/core/modules/workspace';
+import { inferOpenMode } from '@affine/core/utils';
 import { useI18n } from '@affine/i18n';
 import { AllDocsIcon } from '@blocksuite/icons/rc';
-import { useLiveData, useService, WorkspaceService } from '@toeverything/infra';
+import { useLiveData, useService } from '@toeverything/infra';
 import { type MouseEvent, useCallback } from 'react';
 
-import { usePageHelper } from '../../blocksuite/block-suite-page-list/utils';
+import { usePageHelper } from '../../../blocksuite/block-suite-page-list/utils';
 import { ActionButton } from './action-button';
 import docsIllustrationDark from './assets/docs.dark.png';
 import docsIllustrationLight from './assets/docs.light.png';
@@ -35,10 +36,9 @@ export const EmptyDocs = ({
 
   const onCreate = useCallback(
     (e: MouseEvent) => {
-      const doc = pageHelper.createPage(
-        undefined,
-        isNewTabTrigger(e) ? 'new-tab' : true
-      );
+      const doc = pageHelper.createPage(undefined, {
+        at: inferOpenMode(e),
+      });
 
       if (tag) tag.tag(doc.id);
     },

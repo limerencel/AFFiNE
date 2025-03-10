@@ -1,20 +1,20 @@
 import type { BlockComponent, EditorHost } from '@blocksuite/affine/block-std';
+import type { SurfaceRefBlockComponent } from '@blocksuite/affine/blocks/surface-ref';
 import type {
   AttachmentBlockModel,
   DocMode,
   EmbedLinkedDocModel,
   EmbedSyncedDocModel,
   ImageBlockModel,
-  SurfaceRefBlockComponent,
   SurfaceRefBlockModel,
-} from '@blocksuite/affine/blocks';
-import { AffineReference } from '@blocksuite/affine/blocks';
-import type { BlockModel } from '@blocksuite/affine/store';
-import type { AIChatBlockModel } from '@toeverything/infra';
+} from '@blocksuite/affine/model';
+import { AffineReference } from '@blocksuite/affine/rich-text';
+import type { Block, BlockModel } from '@blocksuite/affine/store';
 import { Entity, LiveData } from '@toeverything/infra';
 import type { TemplateResult } from 'lit';
 import { firstValueFrom, map, race } from 'rxjs';
 
+import type { AIChatBlockModel } from '../../../blocksuite/ai/blocks';
 import { resolveLinkToDoc } from '../../navigation';
 import type { WorkbenchService } from '../../workbench';
 
@@ -36,7 +36,8 @@ export type PeekViewElement =
   | HTMLElement
   | BlockComponent
   | AffineReference
-  | HTMLAnchorElement;
+  | HTMLAnchorElement
+  | Block;
 
 export interface PeekViewTarget {
   element?: PeekViewElement;
@@ -55,7 +56,7 @@ export type ImagePeekViewInfo = {
 
 export type AttachmentPeekViewInfo = {
   type: 'attachment';
-  docRef: DocReferenceInfo;
+  docRef: DocReferenceInfo & { filetype?: string };
 };
 
 export type AIChatBlockPeekViewInfo = {
@@ -173,6 +174,7 @@ function resolvePeekInfoFromPeekTarget(
           docRef: {
             docId: blockModel.doc.id,
             blockIds: [blockModel.id],
+            filetype: blockModel.type,
           },
         };
       } else if (isImageBlockModel(blockModel)) {
@@ -183,7 +185,7 @@ function resolvePeekInfoFromPeekTarget(
             blockIds: [blockModel.id],
           },
         };
-      } else if (isAIChatBlockModel(blockModel)) {
+      } else if (isAIChatBlockModel(blockModel) && 'host' in element) {
         return {
           type: 'ai-chat-block',
           docRef: {
@@ -215,7 +217,7 @@ function resolvePeekInfoFromPeekTarget(
   return;
 }
 
-export type PeekViewAnimation = 'fade' | 'zoom' | 'none';
+export type PeekViewAnimation = 'fade' | 'fadeBottom' | 'zoom' | 'none';
 export type PeekViewMode = 'full' | 'fit' | 'max';
 
 export class PeekViewEntity extends Entity {

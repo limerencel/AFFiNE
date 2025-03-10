@@ -1,12 +1,7 @@
 import { Skeleton } from '@affine/component';
-import { type AttachmentBlockModel } from '@blocksuite/affine/blocks';
-import {
-  type Doc,
-  DocsService,
-  FrameworkScope,
-  useLiveData,
-  useService,
-} from '@toeverything/infra';
+import { type Doc, DocsService } from '@affine/core/modules/doc';
+import { type AttachmentBlockModel } from '@blocksuite/affine/model';
+import { FrameworkScope, useLiveData, useService } from '@toeverything/infra';
 import { type ReactElement, useLayoutEffect, useState } from 'react';
 import { useParams } from 'react-router-dom';
 
@@ -38,7 +33,7 @@ const useLoadAttachment = (pageId: string, attachmentId: string) => {
     if (!doc.blockSuiteDoc.ready) {
       doc.blockSuiteDoc.load();
     }
-    doc.setPriorityLoad(10);
+    const dispose = doc.addPriorityLoad(10);
 
     doc
       .waitForSyncReady()
@@ -52,6 +47,7 @@ const useLoadAttachment = (pageId: string, attachmentId: string) => {
 
     return () => {
       release();
+      dispose();
     };
   }, [docRecord, docsService, pageId, attachmentId]);
 
