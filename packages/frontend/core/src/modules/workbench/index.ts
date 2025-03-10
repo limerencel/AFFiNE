@@ -11,13 +11,12 @@ export type { WorkbenchLinkProps } from './view/workbench-link';
 export { WorkbenchLink } from './view/workbench-link';
 export { WorkbenchRoot } from './view/workbench-root';
 
-import {
-  type Framework,
-  GlobalStateService,
-  WorkspaceScope,
-} from '@toeverything/infra';
+import { type Framework } from '@toeverything/infra';
 
 import { DesktopApiService } from '../desktop-api';
+import { PeekViewService } from '../peek-view';
+import { GlobalState, GlobalStateService } from '../storage';
+import { WorkspaceScope } from '../workspace';
 import { SidebarTab } from './entities/sidebar-tab';
 import { View } from './entities/view';
 import { Workbench } from './entities/workbench';
@@ -40,7 +39,11 @@ export function configureWorkbenchCommonModule(services: Framework) {
   services
     .scope(WorkspaceScope)
     .service(WorkbenchService)
-    .entity(Workbench, [WorkbenchDefaultState, WorkbenchNewTabHandler])
+    .entity(Workbench, [
+      WorkbenchDefaultState,
+      WorkbenchNewTabHandler,
+      GlobalState,
+    ])
     .entity(View)
     .scope(ViewScope)
     .service(ViewService, [ViewScope])
@@ -66,5 +69,9 @@ export function configureDesktopWorkbenchModule(services: Framework) {
     .impl(WorkbenchNewTabHandler, DesktopWorkbenchNewTabHandler, [
       DesktopApiService,
     ])
-    .service(DesktopStateSynchronizer, [WorkbenchService, DesktopApiService]);
+    .service(DesktopStateSynchronizer, [
+      WorkbenchService,
+      DesktopApiService,
+      PeekViewService,
+    ]);
 }

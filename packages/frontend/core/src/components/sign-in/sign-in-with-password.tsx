@@ -1,8 +1,10 @@
-import { notify, Wrapper } from '@affine/component';
+import { notify } from '@affine/component';
 import {
+  AuthContainer,
+  AuthContent,
+  AuthFooter,
+  AuthHeader,
   AuthInput,
-  BackButton,
-  ModalHeader,
 } from '@affine/component/auth-components';
 import { Button } from '@affine/component/ui/button';
 import { useAsyncCallback } from '@affine/core/components/hooks/affine-async-hooks';
@@ -11,6 +13,7 @@ import {
   CaptchaService,
   ServerService,
 } from '@affine/core/modules/cloud';
+import type { AuthSessionStatus } from '@affine/core/modules/cloud/entities/session';
 import { Unreachable } from '@affine/env/constant';
 import { ServerDeploymentType } from '@affine/graphql';
 import { useI18n } from '@affine/i18n';
@@ -19,17 +22,18 @@ import type { Dispatch, SetStateAction } from 'react';
 import { useCallback, useEffect, useState } from 'react';
 
 import type { SignInState } from '.';
+import { Back } from './back';
 import { Captcha } from './captcha';
 import * as styles from './style.css';
 
 export const SignInWithPasswordStep = ({
   state,
   changeState,
-  close,
+  onAuthenticated,
 }: {
   state: SignInState;
   changeState: Dispatch<SetStateAction<SignInState>>;
-  close: () => void;
+  onAuthenticated?: (status: AuthSessionStatus) => void;
 }) => {
   const t = useI18n();
   const authService = useService(AuthService);
@@ -62,13 +66,13 @@ export const SignInWithPasswordStep = ({
 
   useEffect(() => {
     if (loginStatus === 'authenticated') {
-      close();
       notify.success({
         title: t['com.affine.auth.toast.title.signed-in'](),
         message: t['com.affine.auth.toast.message.signed-in'](),
       });
     }
-  }, [close, loginStatus, t]);
+    onAuthenticated?.(loginStatus);
+  }, [loginStatus, onAuthenticated, t]);
 
   const onSignIn = useAsyncCallback(async () => {
     if (isLoading || (!verifyToken && needCaptcha)) return;
@@ -104,18 +108,13 @@ export const SignInWithPasswordStep = ({
   }, [changeState]);
 
   return (
-    <>
-      <ModalHeader
+    <AuthContainer>
+      <AuthHeader
         title={t['com.affine.auth.sign.in']()}
         subTitle={serverName}
       />
 
-      <Wrapper
-        marginTop={30}
-        style={{
-          position: 'relative',
-        }}
-      >
+      <AuthContent>
         <AuthInput
           label={t['com.affine.settings.email']()}
           disabled={true}
@@ -156,12 +155,10 @@ export const SignInWithPasswordStep = ({
         >
           {t['com.affine.auth.sign.in']()}
         </Button>
-      </Wrapper>
-      <BackButton
-        onClick={useCallback(() => {
-          changeState(prev => ({ ...prev, step: 'signIn' }));
-        }, [changeState])}
-      />
-    </>
+      </AuthContent>
+      <AuthFooter>
+        <Back changeState={changeState} />
+      </AuthFooter>
+    </AuthContainer>
   );
 };

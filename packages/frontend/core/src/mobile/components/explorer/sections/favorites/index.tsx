@@ -1,16 +1,13 @@
-import { usePageHelper } from '@affine/core/components/blocksuite/block-suite-page-list/utils';
+import { usePageHelper } from '@affine/core/blocksuite/block-suite-page-list/utils';
 import {
   ExplorerService,
   ExplorerTreeRoot,
 } from '@affine/core/modules/explorer';
 import type { FavoriteSupportTypeUnion } from '@affine/core/modules/favorite';
 import { FavoriteService } from '@affine/core/modules/favorite';
+import { WorkspaceService } from '@affine/core/modules/workspace';
 import { useI18n } from '@affine/i18n';
-import {
-  useLiveData,
-  useServices,
-  WorkspaceService,
-} from '@toeverything/infra';
+import { useLiveData, useServices } from '@toeverything/infra';
 import { useCallback } from 'react';
 
 import { AddItemPlaceholder } from '../../layouts/add-item-placeholder';

@@ -1,9 +1,16 @@
+// the following import is used to ensure the block suite editor effects are run
+import '../blocksuite/block-suite-editor';
+
 import { DebugLogger } from '@affine/debug';
 import { DEFAULT_WORKSPACE_NAME } from '@affine/env/constant';
 import onboardingUrl from '@affine/templates/onboarding.zip';
-import { ZipTransformer } from '@blocksuite/affine/blocks';
-import type { WorkspacesService } from '@toeverything/infra';
-import { DocsService } from '@toeverything/infra';
+import { ZipTransformer } from '@blocksuite/affine/blocks/root';
+
+import { DocsService } from '../modules/doc';
+import {
+  getAFFiNEWorkspaceSchema,
+  type WorkspacesService,
+} from '../modules/workspace';
 
 export async function buildShowcaseWorkspace(
   workspacesService: WorkspacesService,
@@ -15,12 +22,16 @@ export async function buildShowcaseWorkspace(
     docCollection.meta.setName(workspaceName);
     const blob = await (await fetch(onboardingUrl)).blob();
 
-    await ZipTransformer.importDocs(docCollection, blob);
+    await ZipTransformer.importDocs(
+      docCollection,
+      getAFFiNEWorkspaceSchema(),
+      blob
+    );
   });
 
   const { workspace, dispose } = workspacesService.open({ metadata: meta });
 
-  await workspace.engine.waitForRootDocReady();
+  await workspace.engine.doc.waitForDocReady(workspace.id);
 
   const docsService = workspace.scope.get(DocsService);
 

@@ -5,7 +5,7 @@ use sqlx::{
   Pool, Row,
 };
 
-pub type Result<T> = std::result::Result<T, sqlx::Error>;
+use super::error::Result;
 
 pub struct SqliteDocStorage {
   pub pool: Pool<Sqlite>,
@@ -16,24 +16,28 @@ impl SqliteDocStorage {
   pub fn new(path: String) -> Self {
     let sqlite_options = SqliteConnectOptions::new()
       .filename(&path)
-      .foreign_keys(false)
-      .journal_mode(sqlx::sqlite::SqliteJournalMode::Wal);
+      .foreign_keys(false);
 
     let mut pool_options = SqlitePoolOptions::new();
 
-    if cfg!(test) && path == ":memory:" {
+    if path == ":memory:" {
       pool_options = pool_options
         .min_connections(1)
         .max_connections(1)
         .idle_timeout(None)
         .max_lifetime(None);
-    } else {
-      pool_options = pool_options.max_connections(4);
-    }
 
-    Self {
-      pool: pool_options.connect_lazy_with(sqlite_options),
-      path,
+      Self {
+        pool: pool_options.connect_lazy_with(sqlite_options),
+        path,
+      }
+    } else {
+      Self {
+        pool: pool_options
+          .max_connections(4)
+          .connect_lazy_with(sqlite_options.journal_mode(sqlx::sqlite::SqliteJournalMode::Wal)),
+        path,
+      }
     }
   }
 
@@ -47,12 +51,12 @@ impl SqliteDocStorage {
         let name: &str = row.try_get("description")?;
         Ok(name == "init_v2")
       }
-      _ => return Ok(false),
+      _ => Ok(false),
     }
   }
 
   pub async fn connect(&self) -> Result<()> {
-    if !Sqlite::database_exists(&self.path).await.unwrap_or(false) {
+    if !Sqlite::database_exists(&self.path).await? {
       Sqlite::create_database(&self.path).await?;
     };
 
@@ -79,7 +83,6 @@ impl SqliteDocStorage {
   ///
   /// Flush the WAL file to the database file.
   /// See https://www.sqlite.org/pragma.html#pragma_wal_checkpoint:~:text=PRAGMA%20schema.wal_checkpoint%3B
-  ///
   pub async fn checkpoint(&self) -> Result<()> {
     sqlx::query("PRAGMA wal_checkpoint(FULL);")
       .execute(&self.pool)

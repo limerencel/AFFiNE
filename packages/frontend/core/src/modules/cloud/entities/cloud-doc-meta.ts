@@ -1,7 +1,5 @@
 import type { GetWorkspacePageMetaByIdQuery } from '@affine/graphql';
-import type { DocService, GlobalCache } from '@toeverything/infra';
 import {
-  backoffRetry,
   catchErrorInto,
   effect,
   Entity,
@@ -10,10 +8,12 @@ import {
   LiveData,
   onComplete,
   onStart,
+  smartRetry,
 } from '@toeverything/infra';
 import { EMPTY, mergeMap } from 'rxjs';
 
-import { isBackendError, isNetworkError } from '../error';
+import type { DocService } from '../../doc';
+import type { GlobalCache } from '../../storage';
 import type { CloudDocMetaStore } from '../stores/cloud-doc-meta';
 
 export type CloudDocMetaType =
@@ -46,13 +46,7 @@ export class CloudDocMeta extends Entity {
       return fromPromise(
         this.store.fetchCloudDocMeta(this.workspaceId, this.docId)
       ).pipe(
-        backoffRetry({
-          when: isNetworkError,
-          count: Infinity,
-        }),
-        backoffRetry({
-          when: isBackendError,
-        }),
+        smartRetry(),
         mergeMap(meta => {
           this.cache.set<CloudDocMetaType>(this.cacheKey, meta);
           return EMPTY;

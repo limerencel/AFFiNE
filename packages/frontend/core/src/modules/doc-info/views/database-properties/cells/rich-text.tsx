@@ -4,8 +4,8 @@ import type { BlockStdScope } from '@blocksuite/affine/block-std';
 import {
   DefaultInlineManagerExtension,
   RichText,
-} from '@blocksuite/affine/blocks';
-import type { Doc } from '@blocksuite/affine/store';
+} from '@blocksuite/affine/rich-text';
+import type { Store } from '@blocksuite/affine/store';
 import { TextIcon } from '@blocksuite/icons/rc';
 import { type LiveData, useLiveData } from '@toeverything/infra';
 import { type CSSProperties, useEffect, useRef, useState } from 'react';
@@ -23,7 +23,7 @@ const renderRichText = ({
 }: {
   std: BlockStdScope;
   text: Y.Text;
-  doc: Doc;
+  doc: Store;
 }) => {
   const inlineManager = std.get(DefaultInlineManagerExtension.identifier);
 

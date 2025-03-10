@@ -1,4 +1,4 @@
-import { usePageHelper } from '@affine/core/components/blocksuite/block-suite-page-list/utils';
+import { usePageHelper } from '@affine/core/blocksuite/block-suite-page-list/utils';
 import {
   AllPageListOperationsMenu,
   PageDisplayMenu,
@@ -8,11 +8,12 @@ import { Header } from '@affine/core/components/pure/header';
 import { WorkspaceModeFilterTab } from '@affine/core/components/pure/workspace-mode-filter-tab';
 import { WorkspaceDialogService } from '@affine/core/modules/dialogs';
 import { WorkbenchService } from '@affine/core/modules/workbench';
-import { isNewTabTrigger } from '@affine/core/utils';
+import { WorkspaceService } from '@affine/core/modules/workspace';
+import { inferOpenMode } from '@affine/core/utils';
 import type { Filter } from '@affine/env/filter';
 import { track } from '@affine/track';
 import { PlusIcon } from '@blocksuite/icons/rc';
-import { useServices, WorkspaceService } from '@toeverything/infra';
+import { useServices } from '@toeverything/infra';
 import clsx from 'clsx';
 import { useCallback } from 'react';
 
@@ -88,15 +89,9 @@ export const AllPageHeader = ({
               styles.headerCreateNewButton,
               !showCreateNew && styles.headerCreateNewButtonHidden
             )}
-            onCreateEdgeless={e =>
-              createEdgeless(isNewTabTrigger(e) ? 'new-tab' : true)
-            }
-            onCreatePage={e =>
-              createPage('page', isNewTabTrigger(e) ? 'new-tab' : true)
-            }
-            onCreateDoc={e =>
-              createPage(undefined, isNewTabTrigger(e) ? 'new-tab' : true)
-            }
+            onCreateEdgeless={e => createEdgeless({ at: inferOpenMode(e) })}
+            onCreatePage={e => createPage('page', { at: inferOpenMode(e) })}
+            onCreateDoc={e => createPage(undefined, { at: inferOpenMode(e) })}
             onImportFile={onImportFile}
           >
             <PlusIcon />

@@ -1,5 +1,7 @@
+import { readFileSync } from 'node:fs';
+import { createRequire } from 'node:module';
+
 import eslint from '@eslint/js';
-import rxjs from '@smarttools/eslint-plugin-rxjs';
 import tsParser from '@typescript-eslint/parser';
 import eslintConfigPrettier from 'eslint-config-prettier';
 import importX from 'eslint-plugin-import-x';
@@ -10,38 +12,33 @@ import sonarjs from 'eslint-plugin-sonarjs';
 import unicorn from 'eslint-plugin-unicorn';
 import tseslint from 'typescript-eslint';
 
+const __require = createRequire(import.meta.url);
+
+const rxjs = __require('@smarttools/eslint-plugin-rxjs');
+
+const ignoreList = readFileSync('.prettierignore', 'utf-8')
+  .split('\n')
+  .filter(line => line.trim() && !line.startsWith('#'));
+
+// Omit `.d.ts` because 1) TypeScript compilation already confirms that
+// types are resolved, and 2) it would mask an unresolved
+// `.ts`/`.tsx`/`.js`/`.jsx` implementation.
+const typeScriptExtensions = ['.ts', '.tsx', '.cts', '.mts'];
+
 export default tseslint.config(
   {
-    ignores: [
-      '**/node_modules',
-      '**/dist',
-      '**/.next',
-      '**/out',
-      '**/storybook-static',
-      '**/affine-out',
-      '**/_next',
-      '**/lib',
-      '**/.eslintrc.js',
-      '**/e2e-dist-*',
-      '**/static',
-      '**/web-static',
-      '**/public',
-      '**/.coverage',
-      '.nx/**',
-      '.yarn/**',
-      '**/*.d.ts',
-      '.github/**/*',
-      'packages/frontend/component/.storybook/**/*',
-      'packages/frontend/i18n/src/i18n-generated.ts',
-      'packages/frontend/i18n/src/i18n-completenesses.json',
-      'packages/frontend/templates/*.gen.ts',
-      'packages/frontend/apps/android/App/app/build/**',
-    ],
+    ignores: ignoreList,
   },
   {
     settings: {
       react: {
         version: 'detect',
+      },
+      'import-x/parsers': {
+        '@typescript-eslint/parser': typeScriptExtensions,
+      },
+      'import-x/resolver': {
+        typescript: true,
       },
     },
     languageOptions: {
@@ -173,6 +170,10 @@ export default tseslint.config(
       '@typescript-eslint/no-unsafe-function-type': 'error',
       '@typescript-eslint/no-wrapper-object-types': 'error',
       '@typescript-eslint/unified-signatures': 'error',
+      '@typescript-eslint/return-await': [
+        'error',
+        'error-handling-correctness-only',
+      ],
       '@typescript-eslint/no-restricted-imports': [
         'error',
         {
@@ -186,11 +187,6 @@ export default tseslint.config(
               group: ['**/src'],
               message: "Don't import from src",
               allowTypeImports: false,
-            },
-            {
-              group: ['@blocksuite/store'],
-              message: "Import from '@blocksuite/global/utils'",
-              importNames: ['assertExists', 'assertEquals'],
             },
           ],
         },
@@ -210,13 +206,18 @@ export default tseslint.config(
       'sonarjs/no-duplicated-branches': 'error',
       'sonarjs/no-collection-size-mischeck': 'error',
       'sonarjs/no-identical-functions': 'error',
+      'sonarjs/no-gratuitous-expressions': 'error',
 
       'simple-import-sort/imports': 'error',
       'simple-import-sort/exports': 'error',
     },
   },
   {
-    files: ['packages/**/*.{ts,tsx}', 'tools/cli/**/*.{ts,tsx}'],
+    files: [
+      'packages/**/*.{ts,tsx}',
+      'tools/**/*.{ts,tsx}',
+      'blocksuite/**/*.{ts,tsx}',
+    ],
     rules: {
       '@typescript-eslint/no-floating-promises': [
         'error',
@@ -229,7 +230,10 @@ export default tseslint.config(
       '@typescript-eslint/require-array-sort-compare': 'error',
       '@typescript-eslint/no-misused-promises': ['error'],
       '@typescript-eslint/prefer-readonly': 'error',
-      'import-x/no-extraneous-dependencies': ['error'],
+      'import-x/no-extraneous-dependencies': [
+        'error',
+        { includeInternal: true },
+      ],
       'react-hooks/exhaustive-deps': [
         'warn',
         {
@@ -246,11 +250,40 @@ export default tseslint.config(
 
           types: {
             '^LiveData$': true,
+            '^Signal$': true,
+            '^ReadonlySignal$': true,
             '^Doc$': false,
             '^Awareness$': false,
             '^UndoManager$': false,
           },
         },
+      ],
+    },
+  },
+  {
+    files: ['packages/frontend/admin/**/*'],
+    rules: {
+      'import-x/no-extraneous-dependencies': [
+        'error',
+        { includeInternal: true, whitelist: ['@affine/admin'] },
+      ],
+    },
+  },
+  {
+    files: ['packages/frontend/core/**/*'],
+    rules: {
+      'import-x/no-extraneous-dependencies': [
+        'error',
+        { includeInternal: true, whitelist: ['@affine/core'] },
+      ],
+    },
+  },
+  {
+    files: ['packages/frontend/component/**/*'],
+    rules: {
+      'import-x/no-extraneous-dependencies': [
+        'error',
+        { includeInternal: true, whitelist: ['@affine/component'] },
       ],
     },
   },
@@ -278,9 +311,19 @@ export default tseslint.config(
     },
   },
   {
-    files: ['packages/frontend/apps/electron/scripts/**/*'],
+    files: [
+      'packages/frontend/apps/electron/scripts/**/*',
+      'blocksuite/tests-legacy/**/*.{ts,tsx}',
+      'blocksuite/**/__tests__/**/*.{ts,tsx}',
+    ],
     rules: {
       'import-x/no-extraneous-dependencies': 'off',
+    },
+  },
+  {
+    files: ['blocksuite/**/*.{ts,tsx}'],
+    rules: {
+      'rxjs/finnish': 'off',
     },
   },
   eslintConfigPrettier

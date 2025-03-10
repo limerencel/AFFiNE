@@ -3,7 +3,7 @@ import {
   applyAwarenessUpdate,
   type Awareness,
   encodeAwarenessUpdate,
-} from 'y-protocols/awareness.js';
+} from 'y-protocols/awareness';
 
 import type { AwarenessRecord } from '../storage/awareness';
 import type { AwarenessSync } from '../sync/awareness';
@@ -13,7 +13,7 @@ type AwarenessChanges = Record<'added' | 'updated' | 'removed', number[]>;
 export class AwarenessFrontend {
   constructor(private readonly sync: AwarenessSync) {}
 
-  connect(awareness: Awareness) {
+  connectAwareness(awareness: Awareness) {
     const uniqueId = nanoid();
     const handleAwarenessUpdate = (
       changes: AwarenessChanges,
@@ -27,7 +27,6 @@ export class AwarenessFrontend {
       );
 
       const update = encodeAwarenessUpdate(awareness, changedClients);
-
       this.sync
         .update(
           {
@@ -41,20 +40,20 @@ export class AwarenessFrontend {
         });
     };
 
-    awareness.on('update', handleAwarenessUpdate);
+    awareness.on('change', handleAwarenessUpdate);
     const handleSyncUpdate = (update: AwarenessRecord, origin?: string) => {
       if (origin === uniqueId) {
         // skip self update
         return;
       }
 
-      applyAwarenessUpdate(awareness, update.bin, origin);
+      applyAwarenessUpdate(awareness, update.bin, uniqueId);
     };
     const handleSyncCollect = () => {
-      return {
+      return Promise.resolve({
         docId: awareness.doc.guid,
         bin: encodeAwarenessUpdate(awareness, [awareness.clientID]),
-      };
+      });
     };
     const unsubscribe = this.sync.subscribeUpdate(
       awareness.doc.guid,
@@ -62,8 +61,13 @@ export class AwarenessFrontend {
       handleSyncCollect
     );
 
+    awareness.once('destroy', () => {
+      awareness.off('change', handleAwarenessUpdate);
+      unsubscribe();
+    });
+
     return () => {
-      awareness.off('update', handleAwarenessUpdate);
+      awareness.off('change', handleAwarenessUpdate);
       unsubscribe();
     };
   }

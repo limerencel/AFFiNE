@@ -8,28 +8,28 @@ import {
 import { SettingRow } from '@affine/component/setting-components';
 import { EditorSettingService } from '@affine/core/modules/editor-setting';
 import { useI18n } from '@affine/i18n';
+import { getSurfaceBlock } from '@blocksuite/affine/blocks/surface';
 import {
   ConnectorMode,
+  DefaultTheme,
   FontFamily,
   FontFamilyMap,
   FontStyle,
   FontWeightMap,
-  LineColor,
-  LineColorMap,
   PointStyle,
   StrokeStyle,
   TextAlign,
-} from '@blocksuite/affine/blocks';
-import type { Doc } from '@blocksuite/affine/store';
+} from '@blocksuite/affine/model';
+import type { Store } from '@blocksuite/affine/store';
 import { useFramework, useLiveData } from '@toeverything/infra';
+import { isEqual } from 'lodash-es';
 import { useCallback, useMemo } from 'react';
 
 import { DropdownMenu } from '../menu';
 import { menuTrigger, settingWrapper } from '../style.css';
-import { sortedFontWeightEntries, useColor } from '../utils';
+import { sortedFontWeightEntries, usePalettes } from '../utils';
 import { Point } from './point';
 import { EdgelessSnapshot } from './snapshot';
-import { getSurfaceBlock } from './utils';
 
 enum ConnecterStyle {
   General = 'general',
@@ -50,7 +50,15 @@ export const ConnectorSettings = () => {
   const framework = useFramework();
   const { editorSetting } = framework.get(EditorSettingService);
   const settings = useLiveData(editorSetting.settings$);
-  const getColorFromMap = useColor();
+  const {
+    palettes: StrokeColorShortPalettes,
+    getCurrentColor: getCurrentStrokeColor,
+  } = usePalettes(
+    DefaultTheme.StrokeColorShortPalettes,
+    DefaultTheme.connectorColor
+  );
+  const { palettes: textColorPalettes, getCurrentColor: getCurrentTextColor } =
+    usePalettes(DefaultTheme.StrokeColorShortPalettes, DefaultTheme.black);
 
   const connecterStyleItems = useMemo<RadioItem[]>(
     () => [
@@ -152,28 +160,28 @@ export const ConnectorSettings = () => {
 
   const currentColor = useMemo(() => {
     const color = settings.connector.stroke;
-    return getColorFromMap(color, LineColorMap);
-  }, [getColorFromMap, settings.connector.stroke]);
+    return getCurrentStrokeColor(color);
+  }, [getCurrentStrokeColor, settings.connector.stroke]);
 
   const colorItems = useMemo(() => {
     const { stroke } = settings.connector;
-    return Object.entries(LineColor).map(([name, value]) => {
+    return StrokeColorShortPalettes.map(({ key, value, resolvedValue }) => {
       const handler = () => {
         editorSetting.set('connector', { stroke: value });
       };
-      const isSelected = stroke === value;
+      const isSelected = isEqual(stroke, value);
       return (
         <MenuItem
-          key={name}
+          key={key}
           onSelect={handler}
           selected={isSelected}
-          prefix={<Point color={value} />}
+          prefix={<Point color={resolvedValue} />}
         >
-          {name}
+          {key}
         </MenuItem>
       );
     });
-  }, [editorSetting, settings]);
+  }, [editorSetting, settings, StrokeColorShortPalettes]);
 
   const startEndPointItems = useMemo(() => {
     const { frontEndpointStyle } = settings.connector;
@@ -322,7 +330,7 @@ export const ConnectorSettings = () => {
 
   const textColorItems = useMemo(() => {
     const { color } = settings.connector.labelStyle;
-    return Object.entries(LineColor).map(([name, value]) => {
+    return textColorPalettes.map(({ key, value, resolvedValue }) => {
       const handler = () => {
         editorSetting.set('connector', {
           labelStyle: {
@@ -330,26 +338,26 @@ export const ConnectorSettings = () => {
           },
         });
       };
-      const isSelected = color === value;
+      const isSelected = isEqual(color, value);
       return (
         <MenuItem
-          key={name}
+          key={key}
           onSelect={handler}
           selected={isSelected}
-          prefix={<Point color={value} />}
+          prefix={<Point color={resolvedValue} />}
         >
-          {name}
+          {key}
         </MenuItem>
       );
     });
-  }, [editorSetting, settings]);
+  }, [editorSetting, settings, textColorPalettes]);
 
   const textColor = useMemo(() => {
     const { color } = settings.connector.labelStyle;
-    return getColorFromMap(color, LineColorMap);
-  }, [getColorFromMap, settings]);
+    return getCurrentTextColor(color);
+  }, [getCurrentTextColor, settings]);
 
-  const getElements = useCallback((doc: Doc) => {
+  const getElements = useCallback((doc: Store) => {
     const surface = getSurfaceBlock(doc);
     return surface?.getElementsByType('connector') || [];
   }, []);
@@ -374,7 +382,7 @@ export const ConnectorSettings = () => {
             trigger={
               <MenuTrigger
                 className={menuTrigger}
-                prefix={<Point color={currentColor.value} />}
+                prefix={<Point color={currentColor.resolvedValue} />}
               >
                 {currentColor.key}
               </MenuTrigger>
@@ -479,7 +487,7 @@ export const ConnectorSettings = () => {
             trigger={
               <MenuTrigger
                 className={menuTrigger}
-                prefix={<Point color={textColor.value} />}
+                prefix={<Point color={textColor.resolvedValue} />}
               >
                 {textColor.key}
               </MenuTrigger>

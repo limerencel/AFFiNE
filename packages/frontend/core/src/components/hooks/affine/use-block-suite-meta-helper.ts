@@ -1,8 +1,10 @@
 import { useAsyncCallback } from '@affine/core/components/hooks/affine-async-hooks';
 import { useDocMetaHelper } from '@affine/core/components/hooks/use-block-suite-page-meta';
 import { useDocCollectionHelper } from '@affine/core/components/hooks/use-block-suite-workspace-helper';
-import type { DocMode } from '@blocksuite/affine/blocks';
-import { DocsService, useService, WorkspaceService } from '@toeverything/infra';
+import { DocsService } from '@affine/core/modules/doc';
+import { WorkspaceService } from '@affine/core/modules/workspace';
+import type { DocMode } from '@blocksuite/affine/model';
+import { useService } from '@toeverything/infra';
 import { useCallback } from 'react';
 import { applyUpdate, encodeStateAsUpdate } from 'yjs';
 
@@ -10,8 +12,7 @@ import { useNavigateHelper } from '../use-navigate-helper';
 
 export function useBlockSuiteMetaHelper() {
   const workspace = useService(WorkspaceService).workspace;
-  const { setDocMeta, getDocMeta, setDocTitle, setDocReadonly } =
-    useDocMetaHelper();
+  const { setDocMeta, getDocMeta, setDocTitle } = useDocMetaHelper();
   const { createDoc } = useDocCollectionHelper(workspace.docCollection);
   const { openPage } = useNavigateHelper();
   const docRecordList = useService(DocsService).list;
@@ -23,10 +24,9 @@ export function useBlockSuiteMetaHelper() {
       const docRecord = docRecordList.doc$(docId).value;
       if (docRecord) {
         docRecord.moveToTrash();
-        setDocReadonly(docId, true);
       }
     },
-    [docRecordList, setDocReadonly]
+    [docRecordList]
   );
 
   const restoreFromTrash = useCallback(
@@ -34,10 +34,9 @@ export function useBlockSuiteMetaHelper() {
       const docRecord = docRecordList.doc$(docId).value;
       if (docRecord) {
         docRecord.restoreFromTrash();
-        setDocReadonly(docId, false);
       }
     },
-    [docRecordList, setDocReadonly]
+    [docRecordList]
   );
 
   const permanentlyDeletePage = useCallback(

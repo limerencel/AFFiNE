@@ -1,61 +1,63 @@
-import { combineLatest, map, type Observable, of } from 'rxjs';
+import { map, type Observable } from 'rxjs';
 
-import type { BlobStorage, DocStorage, SpaceStorage } from '../storage';
-import type { AwarenessStorage } from '../storage/awareness';
-import { AwarenessSync } from './awareness';
-import { BlobSync } from './blob';
-import { DocSync, type DocSyncState } from './doc';
+import type { SpaceStorage } from '../storage';
+import { AwarenessSyncImpl } from './awareness';
+import { BlobSyncImpl } from './blob';
+import { DocSyncImpl, type DocSyncState } from './doc';
+import type { PeerStorageOptions } from './types';
+
+export type { BlobSyncState } from './blob';
+export type { DocSyncDocState, DocSyncState } from './doc';
 
 export interface SyncState {
   doc?: DocSyncState;
 }
 
 export class Sync {
-  readonly doc: DocSync | null;
-  readonly blob: BlobSync | null;
-  readonly awareness: AwarenessSync | null;
+  readonly doc: DocSyncImpl;
+  readonly blob: BlobSyncImpl;
+  readonly awareness: AwarenessSyncImpl;
 
   readonly state$: Observable<SyncState>;
 
-  constructor(
-    readonly local: SpaceStorage,
-    readonly peers: SpaceStorage[]
-  ) {
-    const doc = local.tryGet('doc');
-    const blob = local.tryGet('blob');
-    const sync = local.tryGet('sync');
-    const awareness = local.tryGet('awareness');
+  constructor(readonly storages: PeerStorageOptions<SpaceStorage>) {
+    const doc = storages.local.get('doc');
+    const blob = storages.local.get('blob');
+    const sync = storages.local.get('sync');
+    const awareness = storages.local.get('awareness');
 
-    this.doc =
-      doc && sync
-        ? new DocSync(
-            doc,
-            sync,
-            peers
-              .map(peer => peer.tryGet('doc'))
-              .filter((v): v is DocStorage => !!v)
-          )
-        : null;
-    this.blob = blob
-      ? new BlobSync(
-          blob,
-          peers
-            .map(peer => peer.tryGet('blob'))
-            .filter((v): v is BlobStorage => !!v)
-        )
-      : null;
-    this.awareness = awareness
-      ? new AwarenessSync(
-          awareness,
-          peers
-            .map(peer => peer.tryGet('awareness'))
-            .filter((v): v is AwarenessStorage => !!v)
-        )
-      : null;
-
-    this.state$ = combineLatest([this.doc?.state$ ?? of(undefined)]).pipe(
-      map(([doc]) => ({ doc }))
+    this.doc = new DocSyncImpl(
+      {
+        local: doc,
+        remotes: Object.fromEntries(
+          Object.entries(storages.remotes).map(([peerId, remote]) => [
+            peerId,
+            remote.get('doc'),
+          ])
+        ),
+      },
+      sync
     );
+    this.blob = new BlobSyncImpl({
+      local: blob,
+      remotes: Object.fromEntries(
+        Object.entries(storages.remotes).map(([peerId, remote]) => [
+          peerId,
+          remote.get('blob'),
+        ])
+      ),
+    });
+    this.awareness = new AwarenessSyncImpl({
+      local: awareness,
+      remotes: Object.fromEntries(
+        Object.entries(storages.remotes).map(([peerId, remote]) => [
+          peerId,
+          remote.get('awareness'),
+        ])
+      ),
+    });
+
+    this.state$ = this.doc.state$.pipe(map(doc => ({ doc })));
   }
 
   start() {

@@ -1,19 +1,20 @@
 {
   "name": "@affine/playstore-auto-bump",
-  "version": "0.18.0",
+  "version": "0.20.0",
   "private": true,
   "type": "module",
   "description": "Automatically bump the versionCode and versionName of an Android app from the Google Play Store versions",
   "main": "index.ts",
   "scripts": {
-    "bump": "node --import @oxc-node/core/register index.ts"
+    "bump": "r ./index.ts"
   },
   "dependencies": {
-    "@googleapis/androidpublisher": "^22.0.0",
-    "@oxc-node/core": "^0.0.16"
+    "@affine-tools/cli": "workspace:*",
+    "@affine-tools/utils": "workspace:*",
+    "@googleapis/androidpublisher": "^24.0.0",
+    "typescript": "^5.7.2"
   },
   "devDependencies": {
-    "@types/node": "^20.17.10",
-    "typescript": "^5.7.2"
+    "@types/node": "^22.0.0"
   }
 }

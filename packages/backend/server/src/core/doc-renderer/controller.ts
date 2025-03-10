@@ -5,11 +5,11 @@ import { Controller, Get, Logger, Req, Res } from '@nestjs/common';
 import type { Request, Response } from 'express';
 import isMobile from 'is-mobile';
 
-import { Config, metrics, URLHelper } from '../../base';
+import { Config, metrics } from '../../base';
+import { Models } from '../../models';
 import { htmlSanitize } from '../../native';
 import { Public } from '../auth';
-import { PermissionService } from '../permission';
-import { DocContentService } from './service';
+import { DocReader } from '../doc';
 
 interface RenderOptions {
   title: string;
@@ -50,10 +50,9 @@ export class DocRendererController {
   private readonly mobileAssets: HtmlAssets = defaultAssets;
 
   constructor(
-    private readonly doc: DocContentService,
-    private readonly permission: PermissionService,
+    private readonly doc: DocReader,
     private readonly config: Config,
-    private readonly url: URLHelper
+    private readonly models: Models
   ) {
     this.webAssets = this.readHtmlAssets(
       join(this.config.projectRoot, 'static')
@@ -103,18 +102,16 @@ export class DocRendererController {
     workspaceId: string,
     docId: string
   ): Promise<RenderOptions | null> {
-    let allowUrlPreview = await this.permission.isPublicPage(
-      workspaceId,
-      docId
-    );
+    let allowUrlPreview = await this.models.doc.isPublic(workspaceId, docId);
 
     if (!allowUrlPreview) {
       // if page is private, but workspace url preview is on
-      allowUrlPreview = await this.permission.allowUrlPreview(workspaceId);
+      allowUrlPreview =
+        await this.models.workspace.allowUrlPreview(workspaceId);
     }
 
     if (allowUrlPreview) {
-      return this.doc.getPageContent(workspaceId, docId);
+      return this.doc.getDocContent(workspaceId, docId);
     }
 
     return null;
@@ -123,7 +120,8 @@ export class DocRendererController {
   private async getWorkspaceContent(
     workspaceId: string
   ): Promise<RenderOptions | null> {
-    const allowUrlPreview = await this.permission.allowUrlPreview(workspaceId);
+    const allowUrlPreview =
+      await this.models.workspace.allowUrlPreview(workspaceId);
 
     if (allowUrlPreview) {
       const workspaceContent = await this.doc.getWorkspaceContent(workspaceId);
@@ -132,11 +130,7 @@ export class DocRendererController {
         return {
           title: workspaceContent.name,
           summary: '',
-          avatar: workspaceContent.avatarKey
-            ? this.url.link(
-                `/api/workspaces/${workspaceId}/blobs/${workspaceContent.avatarKey}`
-              )
-            : undefined,
+          avatar: workspaceContent.avatarUrl,
         };
       }
     }

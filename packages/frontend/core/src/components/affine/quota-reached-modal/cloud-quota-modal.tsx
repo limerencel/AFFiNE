@@ -1,16 +1,16 @@
 import { ConfirmModal } from '@affine/component/ui/modal';
 import { openQuotaModalAtom } from '@affine/core/components/atoms';
-import { UserQuotaService } from '@affine/core/modules/cloud';
-import { GlobalDialogService } from '@affine/core/modules/dialogs';
+import { WorkspaceDialogService } from '@affine/core/modules/dialogs';
 import { WorkspacePermissionService } from '@affine/core/modules/permissions';
 import { WorkspaceQuotaService } from '@affine/core/modules/quota';
+import { WorkspaceService } from '@affine/core/modules/workspace';
 import { type I18nString, useI18n } from '@affine/i18n';
 import { track } from '@affine/track';
-import { useLiveData, useService, WorkspaceService } from '@toeverything/infra';
-import bytes from 'bytes';
+import { useLiveData, useService } from '@toeverything/infra';
 import { useAtom } from 'jotai';
 import { useCallback, useEffect, useMemo } from 'react';
 
+import { useAsyncCallback } from '../../hooks/affine-async-hooks';
 import * as styles from './cloud-quota-modal.css';
 
 export const CloudQuotaModal = () => {
@@ -29,59 +29,58 @@ export const CloudQuotaModal = () => {
     permissionService.permission.revalidate();
   }, [permissionService]);
 
-  const quotaService = useService(UserQuotaService);
-  const userQuota = useLiveData(
-    quotaService.quota.quota$.map(q =>
-      q
-        ? {
-            name: q.humanReadable.name,
-            blobLimit: q.humanReadable.blobLimit,
-          }
-        : null
-    )
-  );
-
-  const globalDialogService = useService(GlobalDialogService);
+  const workspaceDialogService = useService(WorkspaceDialogService);
   const handleUpgradeConfirm = useCallback(() => {
-    globalDialogService.open('setting', {
+    workspaceDialogService.open('setting', {
       activeTab: 'plans',
       scrollAnchor: 'cloudPricingPlan',
     });
 
     track.$.paywall.storage.viewPlans();
     setOpen(false);
-  }, [globalDialogService, setOpen]);
+  }, [workspaceDialogService, setOpen]);
 
   const description = useMemo(() => {
-    if (userQuota && isOwner) {
-      return <OwnerDescription quota={userQuota.blobLimit} />;
-    }
-    if (workspaceQuota) {
-      return t['com.affine.payment.blob-limit.description.member']({
-        quota: workspaceQuota.humanReadable.blobLimit,
-      });
-    } else {
-      // loading
+    if (!workspaceQuota) {
       return null;
     }
-  }, [userQuota, isOwner, workspaceQuota, t]);
+    if (isOwner) {
+      return (
+        <OwnerDescription quota={workspaceQuota.humanReadable.blobLimit} />
+      );
+    }
+
+    return t['com.affine.payment.blob-limit.description.member']({
+      quota: workspaceQuota.humanReadable.blobLimit,
+    });
+  }, [isOwner, workspaceQuota, t]);
+
+  const onAbortLargeBlob = useAsyncCallback(
+    async (byteSize: number) => {
+      // wait for quota revalidation
+      await workspaceQuotaService.quota.waitForRevalidation();
+      if (
+        byteSize > (workspaceQuotaService.quota.quota$.value?.blobLimit ?? 0)
+      ) {
+        setOpen(true);
+      }
+    },
+    [setOpen, workspaceQuotaService]
+  );
 
   useEffect(() => {
     if (!workspaceQuota) {
       return;
     }
-    // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
-    currentWorkspace.engine.blob.singleBlobSizeLimit = bytes.parse(
-      workspaceQuota.blobLimit.toString()
-    )!;
 
-    const disposable = currentWorkspace.engine.blob.onAbortLargeBlob.on(() => {
-      setOpen(true);
-    });
+    currentWorkspace.engine.blob.setMaxBlobSize(workspaceQuota.blobLimit);
+
+    const disposable =
+      currentWorkspace.engine.blob.onReachedMaxBlobSize(onAbortLargeBlob);
     return () => {
-      disposable?.dispose();
+      disposable();
     };
-  }, [currentWorkspace.engine.blob, setOpen, workspaceQuota]);
+  }, [currentWorkspace.engine.blob, onAbortLargeBlob, workspaceQuota]);
 
   return (
     <ConfirmModal

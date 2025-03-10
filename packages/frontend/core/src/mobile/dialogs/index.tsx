@@ -8,6 +8,7 @@ import type { WORKSPACE_DIALOG_SCHEMA } from '@affine/core/modules/dialogs/const
 import { useLiveData, useService } from '@toeverything/infra';
 
 import { CollectionSelectorDialog } from './selectors/collection-selector';
+import { DateSelectorDialog } from './selectors/date-selector';
 import { DocSelectorDialog } from './selectors/doc-selector';
 import { TagSelectorDialog } from './selectors/tag-selector';
 import { SettingDialog } from './setting';
@@ -17,7 +18,6 @@ const GLOBAL_DIALOGS = {
   //   'create-workspace': CreateWorkspaceDialog,
   //   'import-workspace': ImportWorkspaceDialog,
   //   'import-template': ImportTemplateDialog,
-  setting: SettingDialog,
   //   import: ImportDialog,
   'sign-in': SignInDialog,
 } satisfies {
@@ -32,6 +32,8 @@ const WORKSPACE_DIALOGS = {
   'tag-selector': TagSelectorDialog,
   'doc-selector': DocSelectorDialog,
   'collection-selector': CollectionSelectorDialog,
+  'date-selector': DateSelectorDialog,
+  setting: SettingDialog,
 } satisfies {
   [key in keyof WORKSPACE_DIALOG_SCHEMA]?: React.FC<
     DialogComponentProps<WORKSPACE_DIALOG_SCHEMA[key]>

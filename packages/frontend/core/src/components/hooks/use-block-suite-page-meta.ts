@@ -1,5 +1,6 @@
-import type { DocCollection, DocMeta } from '@blocksuite/affine/store';
-import { DocsService, useService, WorkspaceService } from '@toeverything/infra';
+import { DocsService } from '@affine/core/modules/doc';
+import type { DocMeta, Workspace } from '@blocksuite/affine/store';
+import { useService } from '@toeverything/infra';
 import { useCallback, useMemo } from 'react';
 
 import { useAsyncCallback } from './affine-async-hooks';
@@ -11,7 +12,7 @@ import { useJournalInfoHelper } from './use-journal';
  * If you want to get all pageMetas, use `useAllBlockSuitePageMeta` instead
  * @returns
  */
-export function useBlockSuiteDocMeta(docCollection: DocCollection) {
+export function useBlockSuiteDocMeta(docCollection: Workspace) {
   const pageMetas = useAllBlockSuiteDocMeta(docCollection);
   const { isPageJournal } = useJournalInfoHelper();
   return useMemo(
@@ -24,7 +25,6 @@ export function useBlockSuiteDocMeta(docCollection: DocCollection) {
 }
 
 export function useDocMetaHelper() {
-  const workspaceService = useService(WorkspaceService);
   const docsService = useService(DocsService);
 
   const setDocTitle = useAsyncCallback(
@@ -51,26 +51,13 @@ export function useDocMetaHelper() {
     },
     [docsService]
   );
-  const setDocReadonly = useCallback(
-    (docId: string, readonly: boolean) => {
-      const doc = workspaceService.workspace.docCollection.getDoc(docId);
-      if (doc?.blockCollection) {
-        workspaceService.workspace.docCollection.awarenessStore.setReadonly(
-          doc.blockCollection,
-          readonly
-        );
-      }
-    },
-    [workspaceService]
-  );
 
   return useMemo(
     () => ({
       setDocTitle,
       setDocMeta,
       getDocMeta,
-      setDocReadonly,
     }),
-    [getDocMeta, setDocMeta, setDocReadonly, setDocTitle]
+    [getDocMeta, setDocMeta, setDocTitle]
   );
 }

@@ -12,15 +12,14 @@ import {
   ImportTemplateService,
   TemplateDownloaderService,
 } from '@affine/core/modules/import-template';
-import { useI18n } from '@affine/i18n';
-import type { DocMode } from '@blocksuite/affine/blocks';
-import { AllDocsIcon } from '@blocksuite/icons/rc';
 import {
-  useLiveData,
-  useService,
   type WorkspaceMetadata,
   WorkspacesService,
-} from '@toeverything/infra';
+} from '@affine/core/modules/workspace';
+import { useI18n } from '@affine/i18n';
+import type { DocMode } from '@blocksuite/affine/model';
+import { AllDocsIcon } from '@blocksuite/icons/rc';
+import { useLiveData, useService } from '@toeverything/infra';
 import { cssVar } from '@toeverything/theme';
 import { useCallback, useEffect, useState } from 'react';
 
@@ -187,6 +186,14 @@ const Dialog = ({
               className={styles.workspaceSelector}
               showArrowDownIcon
               disable={disabled}
+              menuContentOptions={{
+                side: 'top',
+                style: {
+                  maxHeight: 'min(600px, calc(50vh + 50px))',
+                  width: 352,
+                  maxWidth: 'calc(100vw - 20px)',
+                },
+              }}
             />
           </>
         )}
@@ -207,6 +214,7 @@ const Dialog = ({
           loading={disabled}
           disabled={disabled}
           onClick={handleImportToSelectedWorkspace}
+          data-testid="import-template-to-workspace-btn"
         >
           {selectedWorkspaceName &&
             t['com.affine.import-template.dialog.createDocToWorkspace']({

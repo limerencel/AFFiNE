@@ -1,21 +1,28 @@
-import type {
-  AttachmentBlockModel,
-  BookmarkBlockModel,
-  EmbedBlockModel,
-  ImageBlockModel,
-} from '@blocksuite/affine/blocks';
-import { MarkdownAdapter } from '@blocksuite/affine/blocks';
+import { defaultBlockMarkdownAdapterMatchers } from '@blocksuite/affine/adapters';
+import { Container } from '@blocksuite/affine/global/di';
+import {
+  type AttachmentBlockModel,
+  type BookmarkBlockModel,
+  type EmbedBlockModel,
+  type ImageBlockModel,
+  type TableBlockModel,
+  TableModelFlavour,
+} from '@blocksuite/affine/model';
+import {
+  InlineDeltaToMarkdownAdapterExtensions,
+  MarkdownInlineToDeltaAdapterExtensions,
+} from '@blocksuite/affine/rich-text';
+import { MarkdownAdapter } from '@blocksuite/affine/shared/adapters';
+import type { AffineTextAttributes } from '@blocksuite/affine/shared/types';
 import {
   createYProxy,
-  DocCollection,
   type DraftModel,
-  Job,
-  type JobMiddleware,
+  Transformer,
+  type TransformerMiddleware,
   type YBlock,
 } from '@blocksuite/affine/store';
-import type { AffineTextAttributes } from '@blocksuite/affine-shared/types';
 import type { DeltaInsert } from '@blocksuite/inline';
-import { Document, getAFFiNEWorkspaceSchema } from '@toeverything/infra';
+import { Document } from '@toeverything/infra';
 import { toHexString } from 'lib0/buffer.js';
 import { digest as lib0Digest } from 'lib0/hash/sha256';
 import { difference, uniq } from 'lodash-es';
@@ -27,6 +34,8 @@ import {
   Text as YText,
 } from 'yjs';
 
+import { getAFFiNEWorkspaceSchema } from '../../workspace/global-schema';
+import { WorkspaceImpl } from '../../workspace/impls/workspace';
 import type { BlockIndexSchema, DocIndexSchema } from '../schema';
 import type {
   WorkerIngoingMessage,
@@ -105,9 +114,8 @@ const bookmarkFlavours = new Set([
   'affine:embed-loom',
 ]);
 
-const markdownPreviewDocCollection = new DocCollection({
+const markdownPreviewDocCollection = new WorkspaceImpl({
   id: 'indexer',
-  schema: blocksuiteSchema,
 });
 
 function generateMarkdownPreviewBuilder(
@@ -116,7 +124,7 @@ function generateMarkdownPreviewBuilder(
   blocks: BlockDocumentInfo[]
 ) {
   function yblockToDraftModal(yblock: YBlock): DraftModel | null {
-    const flavour = yblock.get('sys:flavour');
+    const flavour = yblock.get('sys:flavour') as string;
     const blockSchema = blocksuiteSchema.flavourSchemaMap.get(flavour);
     if (!blockSchema) {
       return null;
@@ -131,7 +139,7 @@ function generateMarkdownPreviewBuilder(
 
     return {
       ...props,
-      id: yblock.get('sys:id'),
+      id: yblock.get('sys:id') as string,
       flavour,
       children: [],
       role: blockSchema.model.role,
@@ -139,10 +147,10 @@ function generateMarkdownPreviewBuilder(
       keys: Array.from(yblock.keys())
         .filter(key => key.startsWith('prop:'))
         .map(key => key.substring(5)),
-    };
+    } as DraftModel;
   }
 
-  const titleMiddleware: JobMiddleware = ({ adapterConfigs }) => {
+  const titleMiddleware: TransformerMiddleware = ({ adapterConfigs }) => {
     const pages = yRootDoc.getMap('meta').get('pages');
     if (!(pages instanceof YArray)) {
       return;
@@ -163,15 +171,34 @@ function generateMarkdownPreviewBuilder(
     return `${baseUrl}/${docId}?${searchParams.toString()}`;
   }
 
-  const docLinkBaseURLMiddleware: JobMiddleware = ({ adapterConfigs }) => {
+  const docLinkBaseURLMiddleware: TransformerMiddleware = ({
+    adapterConfigs,
+  }) => {
     adapterConfigs.set('docLinkBaseUrl', baseUrl);
   };
 
+  const container = new Container();
+  [
+    ...MarkdownInlineToDeltaAdapterExtensions,
+    ...defaultBlockMarkdownAdapterMatchers,
+    ...InlineDeltaToMarkdownAdapterExtensions,
+  ].forEach(ext => {
+    ext.setup(container);
+  });
+
+  const provider = container.provider();
   const markdownAdapter = new MarkdownAdapter(
-    new Job({
-      collection: markdownPreviewDocCollection,
+    new Transformer({
+      schema: getAFFiNEWorkspaceSchema(),
+      blobCRUD: markdownPreviewDocCollection.blobSync,
+      docCRUD: {
+        create: (id: string) => markdownPreviewDocCollection.createDoc({ id }),
+        get: (id: string) => markdownPreviewDocCollection.getDoc(id),
+        delete: (id: string) => markdownPreviewDocCollection.removeDoc(id),
+      },
       middlewares: [docLinkBaseURLMiddleware, titleMiddleware],
-    })
+    }),
+    provider
   );
 
   const markdownPreviewCache = new WeakMap<BlockDocumentInfo, string | null>();
@@ -346,6 +373,23 @@ function generateMarkdownPreviewBuilder(
     return `[${draftModel.name}](${draftModel.sourceId})\n`;
   };
 
+  const generateTableMarkdownPreview = (block: BlockDocumentInfo) => {
+    const isTableModel = (
+      model: DraftModel | null
+    ): model is DraftModel<TableBlockModel> => {
+      return model?.flavour === TableModelFlavour;
+    };
+
+    const draftModel = yblockToDraftModal(block.yblock);
+    if (!isTableModel(draftModel)) {
+      return null;
+    }
+
+    const url = getDocLink(block.docId, draftModel.id);
+
+    return `[table][](${url})\n`;
+  };
+
   const generateMarkdownPreview = async (block: BlockDocumentInfo) => {
     if (markdownPreviewCache.has(block)) {
       return markdownPreviewCache.get(block);
@@ -389,6 +433,8 @@ function generateMarkdownPreviewBuilder(
       markdown = generateLatexMarkdownPreview(block);
     } else if (bookmarkFlavours.has(flavour)) {
       markdown = generateBookmarkMarkdownPreview(block);
+    } else if (flavour === TableModelFlavour) {
+      markdown = generateTableMarkdownPreview(block);
     } else {
       console.warn(`unknown flavour: ${flavour}`);
     }
@@ -433,7 +479,8 @@ function unindentMarkdown(markdown: string) {
         current = current.trimStart();
       } else {
         // For subsequent list items, maintain relative indentation
-        current = ' '.repeat(indent - baseIndent) + current.trimStart();
+        current =
+          ' '.repeat(Math.max(0, indent - baseIndent)) + current.trimStart();
       }
     }
 
@@ -445,7 +492,7 @@ function unindentMarkdown(markdown: string) {
 
 async function crawlingDocData({
   docBuffer,
-  storageDocId,
+  docId,
   rootDocBuffer,
   rootDocId,
 }: WorkerInput & { type: 'doc' }): Promise<WorkerOutput> {
@@ -455,18 +502,6 @@ async function crawlingDocData({
   }
 
   const yRootDoc = await getOrCreateCachedYDoc(rootDocBuffer);
-
-  let docId = null;
-  for (const [id, subdoc] of yRootDoc.getMap('spaces')) {
-    if (subdoc instanceof YDoc && storageDocId === subdoc.guid) {
-      docId = id;
-      break;
-    }
-  }
-
-  if (docId === null) {
-    return {};
-  }
 
   let docExists: boolean | null = null;
 
@@ -785,6 +820,19 @@ async function crawlingDocData({
         blockDocuments.push({
           ...commonBlockProps,
           content: block.get('prop:latex')?.toString() ?? '',
+        });
+      } else if (flavour === TableModelFlavour) {
+        const contents = Array.from<string>(block.keys())
+          .map(key => {
+            if (key.startsWith('prop:cells.') && key.endsWith('.text')) {
+              return block.get(key)?.toString() ?? '';
+            }
+            return '';
+          })
+          .filter(Boolean);
+        blockDocuments.push({
+          ...commonBlockProps,
+          content: contents,
         });
       } else if (bookmarkFlavours.has(flavour)) {
         blockDocuments.push({

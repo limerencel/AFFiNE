@@ -73,7 +73,6 @@ export const itemContent = style({
   fontSize: cssVar('fontSm'),
   fontWeight: 500,
   lineHeight: '22px',
-  color: cssVarV2('text/emphasis'),
 });
 
 export const itemIcon = style({
@@ -118,4 +117,15 @@ export const dialogFooter = style({
 
 export const upgradeButtonInDialog = style({
   width: 'unset',
+});
+
+export const userContainer = style({
+  display: 'flex',
+  alignItems: 'center',
+  marginTop: '28px',
+});
+
+export const email = style({
+  marginLeft: '4px',
+  marginRight: '8px',
 });

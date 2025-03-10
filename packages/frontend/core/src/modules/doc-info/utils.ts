@@ -1,8 +1,7 @@
 import { DebugLogger } from '@affine/debug';
 import { BlockStdScope } from '@blocksuite/affine/block-std';
-import { PageEditorBlockSpecs } from '@blocksuite/affine/blocks';
-import type { Doc } from '@blocksuite/affine/store';
-import { LiveData } from '@toeverything/infra';
+import { PageEditorBlockSpecs } from '@blocksuite/affine/extensions';
+import type { Store } from '@blocksuite/affine/store';
 import { useMemo } from 'react';
 import { Observable } from 'rxjs';
 
@@ -25,32 +24,16 @@ export function signalToObservable<T>(
   });
 }
 
-export function signalToLiveData<T>(
-  signal: ReadonlySignal<T>,
-  defaultValue: T
-): LiveData<T>;
-
-export function signalToLiveData<T>(
-  signal: ReadonlySignal<T>
-): LiveData<T | undefined>;
-
-export function signalToLiveData<T>(
-  signal: ReadonlySignal<T>,
-  defaultValue?: T
-) {
-  return LiveData.from(signalToObservable(signal), defaultValue);
-}
-
 // todo(pengx17): use rc pool?
-export function createBlockStdScope(doc: Doc) {
+export function createBlockStdScope(doc: Store) {
   logger.debug('createBlockStdScope', doc.id);
   const std = new BlockStdScope({
-    doc,
+    store: doc,
     extensions: PageEditorBlockSpecs,
   });
   return std;
 }
 
-export function useBlockStdScope(doc: Doc) {
+export function useBlockStdScope(doc: Store) {
   return useMemo(() => createBlockStdScope(doc), [doc]);
 }

@@ -45,14 +45,20 @@ export const iconSelectorButton = style({
   display: 'flex',
   alignItems: 'center',
   justifyContent: 'center',
-  width: 32,
-  height: 32,
+  width: 30,
+  height: 30,
   flexShrink: 0,
   border: `1px solid ${cssVar('borderColor')}`,
   background: cssVar('backgroundSecondaryColor'),
   cursor: 'pointer',
-  ':hover': {
-    backgroundColor: cssVar('backgroundTertiaryColor'),
+
+  selectors: {
+    '&:hover:not([data-readonly=true])': {
+      backgroundColor: cssVar('backgroundTertiaryColor'),
+    },
+    '&[data-readonly=true]': {
+      cursor: 'default',
+    },
   },
 });
 

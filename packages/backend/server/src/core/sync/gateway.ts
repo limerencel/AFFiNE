@@ -1,4 +1,4 @@
-import { applyDecorators, Logger } from '@nestjs/common';
+import { applyDecorators, Logger, UseInterceptors } from '@nestjs/common';
 import {
   ConnectedSocket,
   MessageBody,
@@ -7,12 +7,13 @@ import {
   SubscribeMessage as RawSubscribeMessage,
   WebSocketGateway,
 } from '@nestjs/websockets';
+import { ClsInterceptor } from 'nestjs-cls';
 import { Socket } from 'socket.io';
 
 import {
-  AlreadyInSpace,
   CallMetric,
   DocNotFound,
+  DocUpdateBlocked,
   GatewayErrorWrapper,
   metrics,
   NotInSpace,
@@ -20,19 +21,21 @@ import {
   SpaceAccessDenied,
   VersionRejected,
 } from '../../base';
+import { Models } from '../../models';
 import { CurrentUser } from '../auth';
 import {
+  DocReader,
   DocStorageAdapter,
   PgUserspaceDocStorageAdapter,
   PgWorkspaceDocStorageAdapter,
 } from '../doc';
-import { Permission, PermissionService } from '../permission';
+import { AccessController, WorkspaceAction } from '../permission';
 import { DocID } from '../utils/doc';
 
 const SubscribeMessage = (event: string) =>
   applyDecorators(
     GatewayErrorWrapper(event),
-    CallMetric('socketio', 'event_duration', undefined, { event }),
+    CallMetric('socketio', 'event_duration', { event }),
     RawSubscribeMessage(event)
   );
 
@@ -44,7 +47,9 @@ type EventResponse<Data = any> = Data extends never
       data: Data;
     };
 
-type RoomType = 'sync' | `${string}:awareness`;
+// 019 only receives space:broadcast-doc-updates and send space:push-doc-updates
+// 020 only receives space:broadcast-doc-update and send space:push-doc-update
+type RoomType = 'sync' | `${string}:awareness` | 'sync-019';
 
 function Room(
   spaceId: string,
@@ -131,6 +136,7 @@ interface UpdateAwarenessMessage {
 }
 
 @WebSocketGateway()
+@UseInterceptors(ClsInterceptor)
 export class SpaceSyncGateway
   implements OnGatewayConnection, OnGatewayDisconnect
 {
@@ -140,19 +146,23 @@ export class SpaceSyncGateway
 
   constructor(
     private readonly runtime: Runtime,
-    private readonly permissions: PermissionService,
+    private readonly ac: AccessController,
     private readonly workspace: PgWorkspaceDocStorageAdapter,
-    private readonly userspace: PgUserspaceDocStorageAdapter
+    private readonly userspace: PgUserspaceDocStorageAdapter,
+    private readonly docReader: DocReader,
+    private readonly models: Models
   ) {}
 
   handleConnection() {
     this.connectionCount++;
-    metrics.socketio.gauge('realtime_connections').record(this.connectionCount);
+    this.logger.log(`New connection, total: ${this.connectionCount}`);
+    metrics.socketio.gauge('connections').record(this.connectionCount);
   }
 
   handleDisconnect() {
     this.connectionCount--;
-    metrics.socketio.gauge('realtime_connections').record(this.connectionCount);
+    this.logger.log(`Connection disconnected, total: ${this.connectionCount}`);
+    metrics.socketio.gauge('connections').record(this.connectionCount);
   }
 
   selectAdapter(client: Socket, spaceType: SpaceType): SyncSocketAdapter {
@@ -163,7 +173,9 @@ export class SpaceSyncGateway
       const workspace = new WorkspaceSyncAdapter(
         client,
         this.workspace,
-        this.permissions
+        this.ac,
+        this.docReader,
+        this.models
       );
       const userspace = new UserspaceSyncAdapter(client, this.userspace);
 
@@ -208,7 +220,16 @@ export class SpaceSyncGateway
   ): Promise<EventResponse<{ clientId: string; success: true }>> {
     await this.assertVersion(client, clientVersion);
 
-    await this.selectAdapter(client, spaceType).join(user.id, spaceId);
+    // TODO(@forehalo): remove this after 0.19 goes out of life
+    // simple match 0.19.x
+    if (/^0.19.[\d]$/.test(clientVersion)) {
+      const room = Room(spaceId, 'sync-019');
+      if (!client.rooms.has(room)) {
+        await client.join(room);
+      }
+    } else {
+      await this.selectAdapter(client, spaceType).join(user.id, spaceId);
+    }
 
     return { data: { clientId: client.id, success: true } };
   }
@@ -231,12 +252,13 @@ export class SpaceSyncGateway
   ): Promise<
     EventResponse<{ missing: string; state: string; timestamp: number }>
   > {
+    const id = new DocID(docId, spaceId);
     const adapter = this.selectAdapter(client, spaceType);
     adapter.assertIn(spaceId);
 
     const doc = await adapter.diff(
       spaceId,
-      docId,
+      id.guid,
       stateVector ? Buffer.from(stateVector, 'base64') : undefined
     );
 
@@ -264,6 +286,8 @@ export class SpaceSyncGateway
 
   /**
    * @deprecated use [space:push-doc-update] instead, client should always merge updates on their own
+   *
+   * only 0.19.x client will send this event
    */
   @SubscribeMessage('space:push-doc-updates')
   async onReceiveDocUpdates(
@@ -274,32 +298,29 @@ export class SpaceSyncGateway
   ): Promise<EventResponse<{ accepted: true; timestamp?: number }>> {
     const { spaceType, spaceId, docId, updates } = message;
     const adapter = this.selectAdapter(client, spaceType);
+    const id = new DocID(docId, spaceId);
 
-    // TODO(@forehalo): we might need to check write permission before push updates
+    await this.ac.user(user.id).doc(spaceId, id.guid).assert('Doc.Update');
     const timestamp = await adapter.push(
       spaceId,
-      docId,
+      id.guid,
       updates.map(update => Buffer.from(update, 'base64')),
       user.id
     );
 
-    // could be put in [adapter.push]
-    // but the event should be kept away from adapter
-    // so
+    // broadcast to 0.19.x clients
     client
-      .to(adapter.room(spaceId))
+      .to(Room(spaceId, 'sync-019'))
       .emit('space:broadcast-doc-updates', { ...message, timestamp });
 
-    // TODO(@forehalo): remove backward compatibility
-    if (spaceType === SpaceType.Workspace) {
-      const id = new DocID(docId, spaceId);
-      client.to(adapter.room(spaceId)).emit('server-updates', {
-        workspaceId: spaceId,
-        guid: id.guid,
-        updates,
+    // broadcast to new clients
+    updates.forEach(update => {
+      client.to(adapter.room(spaceId)).emit('space:broadcast-doc-update', {
+        ...message,
+        update,
         timestamp,
       });
-    }
+    });
 
     return {
       data: {
@@ -319,7 +340,7 @@ export class SpaceSyncGateway
     const { spaceType, spaceId, docId, update } = message;
     const adapter = this.selectAdapter(client, spaceType);
 
-    // TODO(@forehalo): we might need to check write permission before push updates
+    await this.ac.user(user.id).doc(spaceId, docId).assert('Doc.Update');
     const timestamp = await adapter.push(
       spaceId,
       docId,
@@ -327,9 +348,8 @@ export class SpaceSyncGateway
       user.id
     );
 
-    // TODO(@forehalo): separate different version of clients into different rooms,
-    // so the clients won't receive useless updates events
-    client.to(adapter.room(spaceId)).emit('space:broadcast-doc-updates', {
+    // broadcast to 0.19.x clients
+    client.to(Room(spaceId, 'sync-019')).emit('space:broadcast-doc-updates', {
       spaceType,
       spaceId,
       docId,
@@ -439,162 +459,7 @@ export class SpaceSyncGateway
       .to(adapter.room(spaceId, roomType))
       .emit('space:broadcast-awareness-update', message);
 
-    // TODO(@forehalo): remove backward compatibility
-    if (spaceType === SpaceType.Workspace) {
-      client
-        .to(adapter.room(spaceId, roomType))
-        .emit('server-awareness-broadcast', {
-          workspaceId: spaceId,
-          awarenessUpdate: message.awarenessUpdate,
-        });
-    }
-
     return {};
-  }
-
-  // TODO(@forehalo): remove
-  // deprecated section
-  @SubscribeMessage('client-handshake-sync')
-  async handleClientHandshakeSync(
-    @CurrentUser() user: CurrentUser,
-    @MessageBody('workspaceId') workspaceId: string,
-    @MessageBody('version') version: string,
-    @ConnectedSocket() client: Socket
-  ): Promise<EventResponse<{ clientId: string }>> {
-    await this.assertVersion(client, version);
-
-    return this.onJoinSpace(user, client, {
-      spaceType: SpaceType.Workspace,
-      spaceId: workspaceId,
-      clientVersion: version,
-    });
-  }
-
-  @SubscribeMessage('client-leave-sync')
-  async handleLeaveSync(
-    @MessageBody() workspaceId: string,
-    @ConnectedSocket() client: Socket
-  ): Promise<EventResponse> {
-    return this.onLeaveSpace(client, {
-      spaceType: SpaceType.Workspace,
-      spaceId: workspaceId,
-    });
-  }
-
-  @SubscribeMessage('client-pre-sync')
-  async loadDocStats(
-    @ConnectedSocket() client: Socket,
-    @MessageBody()
-    { workspaceId, timestamp }: { workspaceId: string; timestamp?: number }
-  ): Promise<EventResponse<Record<string, number>>> {
-    return this.onLoadDocTimestamps(client, {
-      spaceType: SpaceType.Workspace,
-      spaceId: workspaceId,
-      timestamp,
-    });
-  }
-
-  @SubscribeMessage('client-update-v2')
-  async handleClientUpdateV2(
-    @CurrentUser() user: CurrentUser,
-    @MessageBody()
-    {
-      workspaceId,
-      guid,
-      updates,
-    }: {
-      workspaceId: string;
-      guid: string;
-      updates: string[];
-    },
-    @ConnectedSocket() client: Socket
-  ): Promise<EventResponse<{ accepted: true; timestamp?: number }>> {
-    return this.onReceiveDocUpdates(client, user, {
-      spaceType: SpaceType.Workspace,
-      spaceId: workspaceId,
-      docId: guid,
-      updates,
-    });
-  }
-
-  @SubscribeMessage('doc-load-v2')
-  async loadDocV2(
-    @ConnectedSocket() client: Socket,
-    @MessageBody()
-    {
-      workspaceId,
-      guid,
-      stateVector,
-    }: {
-      workspaceId: string;
-      guid: string;
-      stateVector?: string;
-    }
-  ): Promise<
-    EventResponse<{ missing: string; state?: string; timestamp: number }>
-  > {
-    return this.onLoadSpaceDoc(client, {
-      spaceType: SpaceType.Workspace,
-      spaceId: workspaceId,
-      docId: guid,
-      stateVector,
-    });
-  }
-
-  @SubscribeMessage('client-handshake-awareness')
-  async handleClientHandshakeAwareness(
-    @ConnectedSocket() client: Socket,
-    @CurrentUser() user: CurrentUser,
-    @MessageBody('workspaceId') workspaceId: string,
-    @MessageBody('version') version: string
-  ): Promise<EventResponse<{ clientId: string }>> {
-    return this.onJoinAwareness(client, user, {
-      spaceType: SpaceType.Workspace,
-      spaceId: workspaceId,
-      docId: workspaceId,
-      clientVersion: version,
-    });
-  }
-
-  @SubscribeMessage('client-leave-awareness')
-  async handleLeaveAwareness(
-    @MessageBody() workspaceId: string,
-    @ConnectedSocket() client: Socket
-  ): Promise<EventResponse> {
-    return this.onLeaveAwareness(client, {
-      spaceType: SpaceType.Workspace,
-      spaceId: workspaceId,
-      docId: workspaceId,
-    });
-  }
-
-  @SubscribeMessage('awareness-init')
-  async handleInitAwareness(
-    @MessageBody() workspaceId: string,
-    @ConnectedSocket() client: Socket
-  ): Promise<EventResponse<{ clientId: string }>> {
-    return this.onLoadAwareness(client, {
-      spaceType: SpaceType.Workspace,
-      spaceId: workspaceId,
-      docId: workspaceId,
-    });
-  }
-
-  @SubscribeMessage('awareness-update')
-  async handleHelpGatheringAwareness(
-    @MessageBody()
-    {
-      workspaceId,
-      awarenessUpdate,
-    }: { workspaceId: string; awarenessUpdate: string },
-    @ConnectedSocket() client: Socket
-  ): Promise<EventResponse> {
-    return this.onUpdateAwareness(client, {
-      spaceType: SpaceType.Workspace,
-      spaceId: workspaceId,
-      docId: workspaceId,
-      awarenessUpdate,
-    });
   }
 }
 
@@ -610,24 +475,22 @@ abstract class SyncSocketAdapter {
   }
 
   async join(userId: string, spaceId: string, roomType: RoomType = 'sync') {
-    this.assertNotIn(spaceId, roomType);
-    await this.assertAccessible(spaceId, userId, Permission.Read);
+    if (this.in(spaceId, roomType)) {
+      return;
+    }
+    await this.assertAccessible(spaceId, userId, 'Workspace.Sync');
     return this.client.join(this.room(spaceId, roomType));
   }
 
   async leave(spaceId: string, roomType: RoomType = 'sync') {
-    this.assertIn(spaceId, roomType);
+    if (!this.in(spaceId, roomType)) {
+      return;
+    }
     return this.client.leave(this.room(spaceId, roomType));
   }
 
   in(spaceId: string, roomType: RoomType = 'sync') {
     return this.client.rooms.has(this.room(spaceId, roomType));
-  }
-
-  assertNotIn(spaceId: string, roomType: RoomType = 'sync') {
-    if (this.client.rooms.has(this.room(spaceId, roomType))) {
-      throw new AlreadyInSpace({ spaceId });
-    }
   }
 
   assertIn(spaceId: string, roomType: RoomType = 'sync') {
@@ -639,12 +502,18 @@ abstract class SyncSocketAdapter {
   abstract assertAccessible(
     spaceId: string,
     userId: string,
-    permission?: Permission
+    action: WorkspaceAction
   ): Promise<void>;
 
-  push(spaceId: string, docId: string, updates: Buffer[], editorId: string) {
-    this.assertIn(spaceId);
-    return this.storage.pushDocUpdates(spaceId, docId, updates, editorId);
+  async push(
+    spaceId: string,
+    docId: string,
+    updates: Buffer[],
+    editorId: string
+  ) {
+    // TODO(@forehalo): enable this after 0.19 goes out of life
+    // this.assertIn(spaceId);
+    return await this.storage.pushDocUpdates(spaceId, docId, updates, editorId);
   }
 
   diff(spaceId: string, docId: string, stateVector?: Uint8Array) {
@@ -667,36 +536,44 @@ class WorkspaceSyncAdapter extends SyncSocketAdapter {
   constructor(
     client: Socket,
     storage: DocStorageAdapter,
-    private readonly permission: PermissionService
+    private readonly ac: AccessController,
+    private readonly docReader: DocReader,
+    private readonly models: Models
   ) {
     super(SpaceType.Workspace, client, storage);
   }
 
-  override push(
+  override async push(
     spaceId: string,
     docId: string,
     updates: Buffer[],
     editorId: string
   ) {
-    const id = new DocID(docId, spaceId);
-    return super.push(spaceId, id.guid, updates, editorId);
+    const docMeta = await this.models.doc.getMeta(spaceId, docId, {
+      select: {
+        blocked: true,
+      },
+    });
+    if (docMeta?.blocked) {
+      throw new DocUpdateBlocked({ spaceId, docId });
+    }
+    return await super.push(spaceId, docId, updates, editorId);
   }
 
-  override diff(spaceId: string, docId: string, stateVector?: Uint8Array) {
-    const id = new DocID(docId, spaceId);
-    return this.storage.getDocDiff(spaceId, id.guid, stateVector);
+  override async diff(
+    spaceId: string,
+    docId: string,
+    stateVector?: Uint8Array
+  ) {
+    return await this.docReader.getDocDiff(spaceId, docId, stateVector);
   }
 
   async assertAccessible(
     spaceId: string,
     userId: string,
-    permission: Permission = Permission.Read
+    action: WorkspaceAction
   ) {
-    if (
-      !(await this.permission.isWorkspaceMember(spaceId, userId, permission))
-    ) {
-      throw new SpaceAccessDenied({ spaceId });
-    }
+    await this.ac.user(userId).workspace(spaceId).assert(action);
   }
 }
 
@@ -708,7 +585,7 @@ class UserspaceSyncAdapter extends SyncSocketAdapter {
   async assertAccessible(
     spaceId: string,
     userId: string,
-    _permission: Permission = Permission.Read
+    _action: WorkspaceAction
   ) {
     if (spaceId !== userId) {
       throw new SpaceAccessDenied({ spaceId });

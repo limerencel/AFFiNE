@@ -4,7 +4,7 @@ import { BrowserWindow, nativeTheme } from 'electron';
 import electronWindowState from 'electron-window-state';
 import { BehaviorSubject } from 'rxjs';
 
-import { isLinux, isMacOS, isWindows } from '../../shared/utils';
+import { isLinux, isMacOS, isWindows, resourcesPath } from '../../shared/utils';
 import { beforeAppQuit } from '../cleanup';
 import { buildType } from '../config';
 import { mainWindowOrigin } from '../constants';
@@ -92,7 +92,7 @@ export class MainWindowManager {
     if (isLinux()) {
       browserWindow.setIcon(
         // __dirname is `packages/frontend/apps/electron/dist` (the bundled output directory)
-        join(__dirname, `../resources/icons/icon_${buildType}_64x64.png`)
+        join(resourcesPath, `icons/icon_${buildType}_64x64.png`)
       );
     }
 
@@ -153,6 +153,7 @@ export class MainWindowManager {
 
     const refreshBound = (timeout = 0) => {
       setTimeout(() => {
+        if (mainWindow.isDestroyed()) return;
         // FIXME: workaround for theme bug in full screen mode
         const size = mainWindow.getSize();
         mainWindow.setSize(size[0] + 1, size[1] + 1);
@@ -268,12 +269,6 @@ export async function openUrlInHiddenWindow(urlObj: URL) {
     win.webContents.openDevTools();
   }
 
-  win.on('close', e => {
-    e.preventDefault();
-    if (win && !win.isDestroyed()) {
-      win.destroy();
-    }
-  });
   logger.info('loading page at', url);
   win.loadURL(url).catch(e => {
     logger.error('failed to load url', e);

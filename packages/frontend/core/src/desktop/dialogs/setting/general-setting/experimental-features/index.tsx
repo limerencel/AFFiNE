@@ -1,6 +1,11 @@
 import { Button, Checkbox, Loading, Switch, Tooltip } from '@affine/component';
 import { SettingHeader } from '@affine/component/setting-components';
 import { useAsyncCallback } from '@affine/core/components/hooks/affine-async-hooks';
+import {
+  AFFINE_FLAGS,
+  FeatureFlagService,
+  type Flag,
+} from '@affine/core/modules/feature-flag';
 import { useI18n } from '@affine/i18n';
 import {
   ArrowRightSmallIcon,
@@ -8,13 +13,7 @@ import {
   EmailIcon,
   GithubIcon,
 } from '@blocksuite/icons/rc';
-import {
-  AFFINE_FLAGS,
-  FeatureFlagService,
-  type Flag,
-  useLiveData,
-  useServices,
-} from '@toeverything/infra';
+import { useLiveData, useServices } from '@toeverything/infra';
 import { useAtom } from 'jotai';
 import { atomWithStorage } from 'jotai/utils';
 import { Suspense, useCallback, useState } from 'react';
@@ -101,12 +100,18 @@ const FeedbackIcon = ({ type }: { type: Flag['feedbackType'] }) => {
 };
 
 const feedbackLink: Record<NonNullable<Flag['feedbackType']>, string> = {
-  discord: 'https://discord.gg/whd5mjYqVw',
+  discord: 'https://discord.gg/Yjf5VFEn',
   email: 'mailto:support@toeverything.info',
   github: 'https://github.com/toeverything/AFFiNE/issues',
 };
 
-const ExperimentalFeaturesItem = ({ flag }: { flag: Flag }) => {
+const ExperimentalFeaturesItem = ({
+  flag,
+  flagKey,
+}: {
+  flag: Flag;
+  flagKey: string;
+}) => {
   const value = useLiveData(flag.$);
   const t = useI18n();
   const onChange = useCallback(
@@ -129,7 +134,7 @@ const ExperimentalFeaturesItem = ({ flag }: { flag: Flag }) => {
     <div className={styles.rowContainer}>
       <div className={styles.switchRow}>
         {t[flag.displayName]()}
-        <Switch checked={value} onChange={onChange} />
+        <Switch data-testid={flagKey} checked={value} onChange={onChange} />
       </div>
       {!!flag.description && (
         <Tooltip content={t[flag.description]()}>
@@ -176,6 +181,7 @@ const ExperimentalFeaturesMain = () => {
         {Object.keys(AFFINE_FLAGS).map(key => (
           <ExperimentalFeaturesItem
             key={key}
+            flagKey={key}
             flag={featureFlagService.flags[key as keyof AFFINE_FLAGS]}
           />
         ))}

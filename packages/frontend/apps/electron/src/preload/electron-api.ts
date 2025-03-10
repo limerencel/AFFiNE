@@ -1,4 +1,6 @@
 // Please add modules to `external` in `rollupOptions` to avoid wrong bundling.
+import type { MessagePort } from 'node:worker_threads';
+
 import type { EventBasedChannel } from 'async-call-rpc';
 import { AsyncCall } from 'async-call-rpc';
 import { ipcRenderer } from 'electron';
@@ -12,22 +14,6 @@ import {
   type HelperToRenderer,
   type RendererToHelper,
 } from '../shared/type';
-
-export function getElectronAPIs() {
-  const mainAPIs = getMainAPIs();
-  const helperAPIs = getHelperAPIs();
-
-  return {
-    apis: {
-      ...mainAPIs.apis,
-      ...helperAPIs.apis,
-    },
-    events: {
-      ...mainAPIs.events,
-      ...helperAPIs.events,
-    },
-  };
-}
 
 type Schema =
   | 'affine'
@@ -151,12 +137,13 @@ const helperPort = new Promise<MessagePort>(resolve =>
 const createMessagePortChannel = (port: MessagePort): EventBasedChannel => {
   return {
     on(listener) {
-      port.onmessage = e => {
+      const listen = (e: MessageEvent) => {
         listener(e.data);
       };
+      port.addEventListener('message', listen as any);
       port.start();
       return () => {
-        port.onmessage = null;
+        port.removeEventListener('message', listen as any);
         try {
           port.close();
         } catch (err) {
@@ -248,3 +235,16 @@ function getHelperAPIs() {
     return { apis: {}, events: {} };
   }
 }
+
+const mainAPIs = getMainAPIs();
+const helperAPIs = getHelperAPIs();
+
+export const apis = {
+  ...mainAPIs.apis,
+  ...helperAPIs.apis,
+};
+
+export const events = {
+  ...mainAPIs.events,
+  ...helperAPIs.events,
+};

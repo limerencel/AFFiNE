@@ -1,41 +1,39 @@
 import { useThemeColorV2 } from '@affine/component';
 import { PageDetailSkeleton } from '@affine/component/page-detail-skeleton';
+import type { AffineEditorContainer } from '@affine/core/blocksuite/block-suite-editor';
 import { AffineErrorBoundary } from '@affine/core/components/affine/affine-error-boundary';
-import { useRegisterBlocksuiteEditorCommands } from '@affine/core/components/hooks/affine/use-register-blocksuite-editor-commands';
 import { useActiveBlocksuiteEditor } from '@affine/core/components/hooks/use-block-suite-editor';
-import { useDocMetaHelper } from '@affine/core/components/hooks/use-block-suite-page-meta';
 import { usePageDocumentTitle } from '@affine/core/components/hooks/use-global-state';
 import { useNavigateHelper } from '@affine/core/components/hooks/use-navigate-helper';
 import { PageDetailEditor } from '@affine/core/components/page-detail-editor';
 import { DetailPageWrapper } from '@affine/core/desktop/pages/workspace/detail-page/detail-page-wrapper';
 import { PageHeader } from '@affine/core/mobile/components';
 import { useGlobalEvent } from '@affine/core/mobile/hooks/use-global-events';
+import { AIButtonService } from '@affine/core/modules/ai-button';
+import { ServerService } from '@affine/core/modules/cloud';
+import { DocService } from '@affine/core/modules/doc';
 import { DocDisplayMetaService } from '@affine/core/modules/doc-display-meta';
 import { EditorService } from '@affine/core/modules/editor';
+import { FeatureFlagService } from '@affine/core/modules/feature-flag';
+import { GlobalContextService } from '@affine/core/modules/global-context';
 import { JournalService } from '@affine/core/modules/journal';
+import { GuardService } from '@affine/core/modules/permissions';
 import { WorkbenchService } from '@affine/core/modules/workbench';
 import { ViewService } from '@affine/core/modules/workbench/services/view';
-import { i18nTime, useI18n } from '@affine/i18n';
+import { WorkspaceService } from '@affine/core/modules/workspace';
+import { i18nTime } from '@affine/i18n';
 import {
-  BookmarkBlockService,
   customImageProxyMiddleware,
-  EmbedGithubBlockService,
-  EmbedLoomBlockService,
-  EmbedYoutubeBlockService,
-  ImageBlockService,
-  RefNodeSlotsProvider,
-} from '@blocksuite/affine/blocks';
-import { DisposableGroup } from '@blocksuite/affine/global/utils';
-import { type AffineEditorContainer } from '@blocksuite/affine/presets';
+  ImageProxyService,
+} from '@blocksuite/affine/blocks/image';
+import { DisposableGroup } from '@blocksuite/affine/global/slot';
+import { RefNodeSlotsProvider } from '@blocksuite/affine/rich-text';
+import { LinkPreviewerService } from '@blocksuite/affine/shared/services';
 import {
-  DocService,
-  FeatureFlagService,
   FrameworkScope,
-  GlobalContextService,
   useLiveData,
   useService,
   useServices,
-  WorkspaceService,
 } from '@toeverything/infra';
 import { cssVarV2 } from '@toeverything/theme/v2';
 import clsx from 'clsx';
@@ -57,6 +55,8 @@ const DetailPageImpl = () => {
     workspaceService,
     globalContextService,
     featureFlagService,
+    aIButtonService,
+    guardService,
   } = useServices({
     WorkbenchService,
     ViewService,
@@ -65,6 +65,8 @@ const DetailPageImpl = () => {
     WorkspaceService,
     GlobalContextService,
     FeatureFlagService,
+    AIButtonService,
+    GuardService,
   });
   const editor = editorService.editor;
   const workspace = workspaceService.workspace;
@@ -84,7 +86,9 @@ const DetailPageImpl = () => {
     featureFlagService.flags.enable_mobile_keyboard_toolbar.value;
   const enableEdgelessEditing =
     featureFlagService.flags.enable_mobile_edgeless_editing.value;
-  const { setDocReadonly } = useDocMetaHelper();
+  const enableAIButton = useLiveData(
+    featureFlagService.flags.enable_mobile_ai_button.$
+  );
 
   // TODO(@eyhn): remove jotai here
   const [_, setActiveBlockSuiteEditor] = useActiveBlocksuiteEditor();
@@ -112,17 +116,13 @@ const DetailPageImpl = () => {
   }, [doc, globalContext, mode]);
 
   useEffect(() => {
-    setDocReadonly(
-      doc.id,
-      !enableKeyboardToolbar || (mode === 'edgeless' && !enableEdgelessEditing)
-    );
-  }, [
-    enableKeyboardToolbar,
-    doc.id,
-    setDocReadonly,
-    mode,
-    enableEdgelessEditing,
-  ]);
+    if (!enableAIButton) return;
+    aIButtonService.presentAIButton(true);
+
+    return () => {
+      aIButtonService.presentAIButton(false);
+    };
+  }, [aIButtonService, enableAIButton]);
 
   useEffect(() => {
     globalContext.isTrashDoc.set(!!isInTrash);
@@ -132,33 +132,37 @@ const DetailPageImpl = () => {
     };
   }, [globalContext, isInTrash]);
 
-  useRegisterBlocksuiteEditorCommands(editor);
   const title = useLiveData(doc.title$);
   usePageDocumentTitle(title);
 
+  const server = useService(ServerService).server;
+
   const onLoad = useCallback(
     (editorContainer: AffineEditorContainer) => {
-      // blocksuite editor host
-      const editorHost = editorContainer.host;
-
       // provide image proxy endpoint to blocksuite
-      editorHost?.std.clipboard.use(
-        customImageProxyMiddleware(BUILD_CONFIG.imageProxyUrl)
+      const imageProxyUrl = new URL(
+        BUILD_CONFIG.imageProxyUrl,
+        server.baseUrl
+      ).toString();
+
+      const linkPreviewUrl = new URL(
+        BUILD_CONFIG.linkPreviewUrl,
+        server.baseUrl
+      ).toString();
+
+      editorContainer.std.clipboard.use(
+        customImageProxyMiddleware(imageProxyUrl)
       );
-      ImageBlockService.setImageProxyURL(BUILD_CONFIG.imageProxyUrl);
+      editorContainer.doc
+        .get(ImageProxyService)
+        .setImageProxyURL(imageProxyUrl);
 
       // provide link preview endpoint to blocksuite
-      BookmarkBlockService.setLinkPreviewEndpoint(BUILD_CONFIG.linkPreviewUrl);
-      EmbedGithubBlockService.setLinkPreviewEndpoint(
-        BUILD_CONFIG.linkPreviewUrl
-      );
-      EmbedYoutubeBlockService.setLinkPreviewEndpoint(
-        BUILD_CONFIG.linkPreviewUrl
-      );
-      EmbedLoomBlockService.setLinkPreviewEndpoint(BUILD_CONFIG.linkPreviewUrl);
+      editorContainer.doc.get(LinkPreviewerService).setEndpoint(linkPreviewUrl);
 
       // provide page mode and updated date to blocksuite
-      const refNodeService = editorHost?.std.getOptional(RefNodeSlotsProvider);
+      const refNodeService =
+        editorContainer.std.getOptional(RefNodeSlotsProvider);
       const disposable = new DisposableGroup();
       if (refNodeService) {
         disposable.add(
@@ -189,8 +193,16 @@ const DetailPageImpl = () => {
         disposable.dispose();
       };
     },
-    [docCollection.id, editor, jumpToPageBlock, openPage]
+    [docCollection.id, editor, jumpToPageBlock, openPage, server]
   );
+
+  const canEdit = useLiveData(guardService.can$('Doc_Update', doc.id));
+
+  const readonly =
+    !canEdit ||
+    isInTrash ||
+    !enableKeyboardToolbar ||
+    (mode === 'edgeless' && !enableEdgelessEditing);
 
   return (
     <FrameworkScope scope={editor.scope}>
@@ -206,7 +218,7 @@ const DetailPageImpl = () => {
         >
           {/* Add a key to force rerender when page changed, to avoid error boundary persisting. */}
           <AffineErrorBoundary key={doc.id} className={styles.errorBoundary}>
-            <PageDetailEditor onLoad={onLoad} />
+            <PageDetailEditor onLoad={onLoad} readonly={readonly} />
           </AffineErrorBoundary>
         </div>
       </div>
@@ -240,14 +252,11 @@ const MobileDetailPage = ({
   pageId: string;
   date?: string;
 }) => {
-  const t = useI18n();
   const docDisplayMetaService = useService(DocDisplayMetaService);
   const journalService = useService(JournalService);
   const workbench = useService(WorkbenchService).workbench;
   const [showTitle, setShowTitle] = useState(checkShowTitle);
-  const titleInfo = useLiveData(docDisplayMetaService.title$(pageId));
-  const title =
-    typeof titleInfo === 'string' ? titleInfo : t[titleInfo.i18nKey]();
+  const title = useLiveData(docDisplayMetaService.title$(pageId));
 
   const allJournalDates = useLiveData(journalService.allJournalDates$);
 

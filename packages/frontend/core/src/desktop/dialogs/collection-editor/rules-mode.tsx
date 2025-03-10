@@ -8,6 +8,7 @@ import {
   type ListItem,
   ListScrollContainer,
 } from '@affine/core/components/page-list';
+import { DocsService } from '@affine/core/modules/doc';
 import { CompatibleFavoriteItemsAdapter } from '@affine/core/modules/favorite';
 import type { Collection } from '@affine/env/filter';
 import { Trans, useI18n } from '@affine/i18n';
@@ -16,9 +17,9 @@ import {
   CloseIcon,
   EdgelessIcon,
   PageIcon,
-  ToggleCollapseIcon,
+  ToggleRightIcon,
 } from '@blocksuite/icons/rc';
-import { DocsService, useLiveData, useService } from '@toeverything/infra';
+import { useLiveData, useService } from '@toeverything/infra';
 import { cssVar } from '@toeverything/theme';
 import clsx from 'clsx';
 import type { ReactNode } from 'react';
@@ -95,12 +96,6 @@ export const RulesMode = ({
 
   return (
     <>
-      {/*prevents modal autofocus to the first input*/}
-      <input
-        type="text"
-        style={{ width: 0, height: 0 }}
-        onFocus={e => requestAnimationFrame(() => e.target.blur())}
-      />
       <Tooltip content={tips}>
         <div className={clsx(styles.rulesTitle, styles.ellipsis)}>{tips}</div>
       </Tooltip>
@@ -134,7 +129,7 @@ export const RulesMode = ({
                       iconStyle={{
                         transform: expandInclude ? 'rotate(90deg)' : undefined,
                       }}
-                      icon={<ToggleCollapseIcon />}
+                      icon={<ToggleRightIcon />}
                     />
                     <div style={{ color: cssVar('textSecondaryColor') }}>
                       {t['com.affine.editCollection.rules.include.title']()}

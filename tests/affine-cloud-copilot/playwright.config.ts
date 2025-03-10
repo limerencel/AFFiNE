@@ -18,17 +18,16 @@ const config: PlaywrightTestConfig = {
     viewport: { width: 1440, height: 800 },
     actionTimeout: 10 * 1000,
     locale: 'en-US',
-    trace: 'on',
-    video: 'on',
+    trace: 'retain-on-failure',
+    video: 'retain-on-failure',
   },
   forbidOnly: !!process.env.CI,
   workers: 4,
   retries: 3,
   reporter: process.env.CI ? 'github' : 'list',
   webServer: [
-    // Intentionally not building the web, reminds you to run it by yourself.
     {
-      command: 'yarn -T run start:web-static',
+      command: 'yarn run -T affine dev -p @affine/web',
       port: 8080,
       timeout: 120 * 1000,
       reuseExistingServer: !process.env.CI,
@@ -37,7 +36,7 @@ const config: PlaywrightTestConfig = {
       },
     },
     {
-      command: 'yarn workspace @affine/server start',
+      command: 'yarn run -T affine dev -p @affine/server',
       port: 3010,
       timeout: 120 * 1000,
       reuseExistingServer: !process.env.CI,

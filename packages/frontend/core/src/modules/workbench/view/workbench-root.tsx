@@ -1,6 +1,5 @@
 import { ResizePanel } from '@affine/component/resize-panel';
 import { AffineErrorComponent } from '@affine/core/components/affine/affine-error-boundary/affine-error-fallback';
-import { rightSidebarWidthAtom } from '@affine/core/components/atoms';
 import { workbenchRoutes } from '@affine/core/desktop/workbench-router';
 import {
   appSettingAtom,
@@ -8,7 +7,7 @@ import {
   useLiveData,
   useService,
 } from '@toeverything/infra';
-import { useAtom, useAtomValue } from 'jotai';
+import { useAtomValue } from 'jotai';
 import { memo, useCallback, useEffect, useRef, useState } from 'react';
 import { type RouteObject, useLocation } from 'react-router-dom';
 
@@ -48,8 +47,8 @@ export const WorkbenchRoot = memo(() => {
 
   useAdapter(workbench, basename);
 
-  const panelRenderer = useCallback((view: View, index: number) => {
-    return <WorkbenchView key={view.id} view={view} index={index} />;
+  const panelRenderer = useCallback((view: View) => {
+    return <WorkbenchView view={view} />;
   }, []);
 
   const onMove = useCallback(
@@ -78,12 +77,12 @@ export const WorkbenchRoot = memo(() => {
 
 WorkbenchRoot.displayName = 'memo(WorkbenchRoot)';
 
-const WorkbenchView = ({ view, index }: { view: View; index: number }) => {
+const WorkbenchView = ({ view }: { view: View }) => {
   const workbench = useService(WorkbenchService).workbench;
 
   const handleOnFocus = useCallback(() => {
-    workbench.active(index);
-  }, [workbench, index]);
+    workbench.active(view);
+  }, [workbench, view]);
 
   const containerRef = useRef<HTMLDivElement | null>(null);
 
@@ -115,15 +114,23 @@ const MAX_SIDEBAR_WIDTH = 800;
 const WorkbenchSidebar = () => {
   const { clientBorder } = useAtomValue(appSettingAtom);
 
-  const [width, setWidth] = useAtom(rightSidebarWidthAtom);
   const [resizing, setResizing] = useState(false);
 
   const workbench = useService(WorkbenchService).workbench;
+  const [width, setWidth] = useState(workbench.sidebarWidth$.value ?? 0);
 
   const views = useLiveData(workbench.views$);
   const activeView = useLiveData(workbench.activeView$);
   const sidebarOpen = useLiveData(workbench.sidebarOpen$);
   const [floating, setFloating] = useState(false);
+
+  const onWidthChanged = useCallback(
+    (width: number) => {
+      workbench.setSidebarWidth(width);
+      setWidth(width);
+    },
+    [workbench]
+  );
 
   const handleOpenChange = useCallback(
     (open: boolean) => {
@@ -149,15 +156,16 @@ const WorkbenchSidebar = () => {
     <ResizePanel
       floating={floating}
       resizeHandlePos="left"
-      resizeHandleOffset={0}
+      resizeHandleOffset={clientBorder && sidebarOpen ? 3 : 0}
       width={width}
       resizing={resizing}
       onResizing={setResizing}
       className={styles.workbenchSidebar}
       data-client-border={clientBorder && sidebarOpen}
-      open={sidebarOpen}
+      open={sidebarOpen ?? false}
       onOpen={handleOpenChange}
       onWidthChange={setWidth}
+      onWidthChanged={onWidthChanged}
       minWidth={MIN_SIDEBAR_WIDTH}
       maxWidth={MAX_SIDEBAR_WIDTH}
       unmountOnExit={false}

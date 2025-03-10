@@ -5,13 +5,16 @@ import {
   toast,
   useConfirmModal,
 } from '@affine/component';
-import { usePageHelper } from '@affine/core/components/blocksuite/block-suite-page-list/utils';
+import { usePageHelper } from '@affine/core/blocksuite/block-suite-page-list/utils';
 import { IsFavoriteIcon } from '@affine/core/components/pure/icons';
 import { WorkspaceDialogService } from '@affine/core/modules/dialogs';
+import { DocsService } from '@affine/core/modules/doc';
 import type { NodeOperation } from '@affine/core/modules/explorer';
 import { FavoriteService } from '@affine/core/modules/favorite';
+import { GlobalCacheService } from '@affine/core/modules/storage';
 import { TagService } from '@affine/core/modules/tag';
 import { WorkbenchService } from '@affine/core/modules/workbench';
+import { WorkspaceService } from '@affine/core/modules/workspace';
 import { useI18n } from '@affine/i18n';
 import { track } from '@affine/track';
 import {
@@ -20,15 +23,7 @@ import {
   PlusIcon,
   SplitViewIcon,
 } from '@blocksuite/icons/rc';
-import {
-  DocsService,
-  FeatureFlagService,
-  GlobalCacheService,
-  useLiveData,
-  useService,
-  useServices,
-  WorkspaceService,
-} from '@toeverything/infra';
+import { useLiveData, useServices } from '@toeverything/infra';
 import { useCallback, useMemo } from 'react';
 
 import { TagRenameSubMenu } from './dialog';
@@ -223,10 +218,6 @@ export const useExplorerTagNodeOperationsMenu = (
   }
 ): NodeOperation[] => {
   const t = useI18n();
-  const featureFlagService = useService(FeatureFlagService);
-  const enableMultiView = useLiveData(
-    featureFlagService.flags.enable_multi_view.$
-  );
   const {
     favorite,
     handleNewDoc,
@@ -270,7 +261,7 @@ export const useExplorerTagNodeOperationsMenu = (
           </MenuItem>
         ),
       },
-      ...(BUILD_CONFIG.isElectron && enableMultiView
+      ...(BUILD_CONFIG.isElectron
         ? [
             {
               index: 100,
@@ -316,7 +307,6 @@ export const useExplorerTagNodeOperationsMenu = (
       },
     ],
     [
-      enableMultiView,
       favorite,
       handleChangeNameOrColor,
       handleMoveToTrash,

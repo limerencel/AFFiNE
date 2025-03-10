@@ -1,10 +1,11 @@
 import EventEmitter2 from 'eventemitter2';
 import { diffUpdate, encodeStateVectorFromUpdate, mergeUpdates } from 'yjs';
 
+import type { Connection } from '../connection';
 import { isEmptyUpdate } from '../utils/is-empty-update';
 import type { Locker } from './lock';
 import { SingletonLocker } from './lock';
-import { Storage, type StorageOptions } from './storage';
+import { type Storage } from './storage';
 
 export interface DocClock {
   docId: string;
@@ -33,23 +34,83 @@ export interface Editor {
   avatarUrl: string | null;
 }
 
-export interface DocStorageOptions extends StorageOptions {
+export interface DocStorageOptions {
   mergeUpdates?: (updates: Uint8Array[]) => Promise<Uint8Array> | Uint8Array;
+  id: string;
+
+  /**
+   * open as readonly mode.
+   */
+  readonlyMode?: boolean;
 }
 
-export abstract class DocStorage<
-  Opts extends DocStorageOptions = DocStorageOptions,
-> extends Storage<Opts> {
-  private readonly event = new EventEmitter2();
-  override readonly storageType = 'doc';
-  protected readonly locker: Locker = new SingletonLocker();
-
-  // REGION: open apis by Op system
+export interface DocStorage extends Storage {
+  readonly storageType: 'doc';
+  readonly isReadonly: boolean;
   /**
    * Get a doc record with latest binary.
    */
+  getDoc(docId: string): Promise<DocRecord | null>;
+  /**
+   * Get a yjs binary diff with the given state vector.
+   */
+  getDocDiff(docId: string, state?: Uint8Array): Promise<DocDiff | null>;
+  /**
+   * Push updates into storage
+   *
+   * @param origin - Internal identifier to recognize the source in the "update" event. Will not be stored or transferred.
+   */
+  pushDocUpdate(update: DocUpdate, origin?: string): Promise<DocClock>;
+
+  /**
+   * Get the timestamp of the latest update of a doc.
+   */
+  getDocTimestamp(docId: string): Promise<DocClock | null>;
+
+  /**
+   * Get all docs timestamps info. especially for useful in sync process.
+   */
+  getDocTimestamps(after?: Date): Promise<DocClocks>;
+
+  /**
+   * Delete a specific doc data with all snapshots and updates
+   */
+  deleteDoc(docId: string): Promise<void>;
+
+  /**
+   * Subscribe on doc updates emitted from storage itself.
+   *
+   * NOTE:
+   *
+   *   There is not always update emitted from storage itself.
+   *
+   *   For example, in Sqlite storage, the update will only come from user's updating on docs,
+   *   in other words, the update will never somehow auto generated in storage internally.
+   *
+   *   But for Cloud storage, there will be updates broadcasted from other clients,
+   *   so the storage will emit updates to notify the client to integrate them.
+   */
+  subscribeDocUpdate(
+    callback: (update: DocRecord, origin?: string) => void
+  ): () => void;
+}
+
+export abstract class DocStorageBase<Opts = {}> implements DocStorage {
+  get isReadonly(): boolean {
+    return this.options.readonlyMode ?? false;
+  }
+  private readonly event = new EventEmitter2();
+  readonly storageType = 'doc';
+  abstract readonly connection: Connection;
+  protected readonly locker: Locker = new SingletonLocker();
+  protected readonly spaceId = this.options.id;
+
+  constructor(protected readonly options: Opts & DocStorageOptions) {}
+
   async getDoc(docId: string) {
-    await using _lock = await this.lockDocForUpdate(docId);
+    await using _lock = this.isReadonly
+      ? undefined
+      : await this.lockDocForUpdate(docId);
 
     const snapshot = await this.getDocSnapshot(docId);
     const updates = await this.getDocUpdates(docId);
@@ -67,10 +128,13 @@ export abstract class DocStorage<
         editor,
       };
 
-      await this.setDocSnapshot(newSnapshot, snapshot);
+      // if is readonly, we will not set the new snapshot
+      if (!this.isReadonly) {
+        await this.setDocSnapshot(newSnapshot, snapshot);
 
-      // always mark updates as merged unless throws
-      await this.markUpdatesMerged(docId, updates);
+        // always mark updates as merged unless throws
+        await this.markUpdatesMerged(docId, updates);
+      }
 
       return newSnapshot;
     }
@@ -78,9 +142,6 @@ export abstract class DocStorage<
     return snapshot;
   }
 
-  /**
-   * Get a yjs binary diff with the given state vector.
-   */
   async getDocDiff(docId: string, state?: Uint8Array) {
     const doc = await this.getDoc(docId);
 
@@ -90,47 +151,20 @@ export abstract class DocStorage<
 
     return {
       docId,
-      missing: state ? diffUpdate(doc.bin, state) : doc.bin,
+      missing: state && state.length > 0 ? diffUpdate(doc.bin, state) : doc.bin,
       state: encodeStateVectorFromUpdate(doc.bin),
       timestamp: doc.timestamp,
     };
   }
 
-  /**
-   * Push updates into storage
-   *
-   * @param origin - Internal identifier to recognize the source in the "update" event. Will not be stored or transferred.
-   */
   abstract pushDocUpdate(update: DocUpdate, origin?: string): Promise<DocClock>;
 
-  /**
-   * Get the timestamp of the latest update of a doc.
-   */
   abstract getDocTimestamp(docId: string): Promise<DocClock | null>;
 
-  /**
-   * Get all docs timestamps info. especially for useful in sync process.
-   */
   abstract getDocTimestamps(after?: Date): Promise<DocClocks>;
 
-  /**
-   * Delete a specific doc data with all snapshots and updates
-   */
   abstract deleteDoc(docId: string): Promise<void>;
 
-  /**
-   * Subscribe on doc updates emitted from storage itself.
-   *
-   * NOTE:
-   *
-   *   There is not always update emitted from storage itself.
-   *
-   *   For example, in Sqlite storage, the update will only come from user's updating on docs,
-   *   in other words, the update will never somehow auto generated in storage internally.
-   *
-   *   But for Cloud storage, there will be updates broadcasted from other clients,
-   *   so the storage will emit updates to notify the client to integrate them.
-   */
   subscribeDocUpdate(callback: (update: DocRecord, origin?: string) => void) {
     this.event.on('update', callback);
 
@@ -138,7 +172,6 @@ export abstract class DocStorage<
       this.event.off('update', callback);
     };
   }
-  // ENDREGION
 
   // REGION: api for internal usage
   protected on(

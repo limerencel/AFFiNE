@@ -8,29 +8,28 @@ import {
   useDraggable,
   useDropTarget,
 } from '@affine/component';
+import type { DocCustomPropertyInfo } from '@affine/core/modules/db';
+import { DocService, DocsService } from '@affine/core/modules/doc';
 import { DocDatabaseBacklinkInfo } from '@affine/core/modules/doc-info';
 import type {
   DatabaseRow,
   DatabaseValueCell,
 } from '@affine/core/modules/doc-info/types';
-import { WorkbenchService } from '@affine/core/modules/workbench';
-import { ViewService } from '@affine/core/modules/workbench/services/view';
+import { GuardService } from '@affine/core/modules/permissions';
+import { ViewService, WorkbenchService } from '@affine/core/modules/workbench';
 import type { AffineDNDData } from '@affine/core/types/dnd';
 import { useI18n } from '@affine/i18n';
 import { track } from '@affine/track';
-import { PlusIcon, PropertyIcon, ToggleExpandIcon } from '@blocksuite/icons/rc';
+import { PlusIcon, PropertyIcon, ToggleDownIcon } from '@blocksuite/icons/rc';
 import * as Collapsible from '@radix-ui/react-collapsible';
 import {
-  type DocCustomPropertyInfo,
-  DocService,
-  DocsService,
   useLiveData,
   useService,
   useServiceOptional,
 } from '@toeverything/infra';
 import clsx from 'clsx';
 import type React from 'react';
-import { forwardRef, useCallback, useState } from 'react';
+import { forwardRef, useCallback, useMemo, useState } from 'react';
 
 import { DocPropertyIcon } from './icons/doc-property-icon';
 import { CreatePropertyMenuItems } from './menu/create-doc-property';
@@ -54,6 +53,11 @@ export interface DocPropertiesTableProps {
   defaultOpenProperty?: DefaultOpenProperty;
   onPropertyAdded?: (property: DocCustomPropertyInfo) => void;
   onPropertyChange?: (property: DocCustomPropertyInfo, value: unknown) => void;
+  onPropertyInfoChange?: (
+    property: DocCustomPropertyInfo,
+    field: keyof DocCustomPropertyInfo,
+    value: string
+  ) => void;
   onDatabasePropertyChange?: (
     row: DatabaseRow,
     cell: DatabaseValueCell,
@@ -91,7 +95,7 @@ export const DocPropertiesTableHeader = ({
           className={styles.tableHeaderCollapseButtonWrapper}
           data-testid="page-info-collapse"
         >
-          <ToggleExpandIcon
+          <ToggleDownIcon
             className={styles.collapsedIcon}
             data-collapsed={!open}
           />
@@ -107,13 +111,22 @@ interface DocPropertyRowProps {
   propertyInfo: DocCustomPropertyInfo;
   showAll?: boolean;
   defaultOpenEditMenu?: boolean;
+  propertyInfoReadonly?: boolean;
+  readonly?: boolean;
   onChange?: (value: unknown) => void;
+  onPropertyInfoChange?: (
+    field: keyof DocCustomPropertyInfo,
+    value: string
+  ) => void;
 }
 
 export const DocPropertyRow = ({
   propertyInfo,
   defaultOpenEditMenu,
   onChange,
+  propertyInfoReadonly,
+  readonly,
+  onPropertyInfoChange,
 }: DocPropertyRowProps) => {
   const t = useI18n();
   const docService = useService(DocService);
@@ -121,6 +134,7 @@ export const DocPropertyRow = ({
   const customPropertyValue = useLiveData(
     docService.doc.customProperty$(propertyInfo.id)
   );
+
   const typeInfo = isSupportedDocPropertyType(propertyInfo.type)
     ? DocPropertyTypes[propertyInfo.type]
     : undefined;
@@ -147,6 +161,7 @@ export const DocPropertyRow = ({
   const docId = docService.doc.id;
   const { dragRef } = useDraggable<AffineDNDData>(
     () => ({
+      canDrag: !propertyInfoReadonly,
       data: {
         entity: {
           type: 'custom-property',
@@ -158,7 +173,7 @@ export const DocPropertyRow = ({
         },
       },
     }),
-    [docId, propertyInfo.id]
+    [docId, propertyInfo.id, propertyInfoReadonly]
   );
   const { dropTargetRef, closestEdge } = useDropTarget<AffineDNDData>(
     () => ({
@@ -167,6 +182,7 @@ export const DocPropertyRow = ({
       },
       canDrop: data => {
         return (
+          !propertyInfoReadonly &&
           data.source.data.entity?.type === 'custom-property' &&
           data.source.data.entity.id !== propertyInfo.id &&
           data.source.data.from?.at === 'doc-property:table' &&
@@ -191,7 +207,7 @@ export const DocPropertyRow = ({
         });
       },
     }),
-    [docId, docsService.propertyList, propertyInfo.id]
+    [docId, docsService.propertyList, propertyInfo.id, propertyInfoReadonly]
   );
 
   if (!ValueRenderer || typeof ValueRenderer !== 'function') return null;
@@ -205,6 +221,8 @@ export const DocPropertyRow = ({
       dropIndicatorEdge={closestEdge}
       hideEmpty={hideEmpty}
       hide={hide}
+      data-property-info-readonly={propertyInfoReadonly}
+      data-readonly={readonly}
       data-testid="doc-property-row"
       data-info-id={propertyInfo.id}
     >
@@ -215,13 +233,20 @@ export const DocPropertyRow = ({
           propertyInfo.name ||
           (typeInfo?.name ? t.t(typeInfo.name) : t['unnamed']())
         }
-        menuItems={<EditDocPropertyMenuItems propertyId={propertyInfo.id} />}
+        menuItems={
+          <EditDocPropertyMenuItems
+            propertyId={propertyInfo.id}
+            onPropertyInfoChange={onPropertyInfoChange}
+            readonly={propertyInfoReadonly}
+          />
+        }
         data-testid="doc-property-name"
       />
       <ValueRenderer
         propertyInfo={propertyInfo}
         onChange={handleChange}
         value={customPropertyValue}
+        readonly={readonly}
       />
     </PropertyRoot>
   );
@@ -233,6 +258,11 @@ interface DocWorkspacePropertiesTableBodyProps {
   defaultOpen?: boolean;
   onChange?: (property: DocCustomPropertyInfo, value: unknown) => void;
   onPropertyAdded?: (property: DocCustomPropertyInfo) => void;
+  onPropertyInfoChange?: (
+    property: DocCustomPropertyInfo,
+    field: keyof DocCustomPropertyInfo,
+    value: string
+  ) => void;
 }
 
 // 🏷️ Tags     (⋅ xxx) (⋅ yyy)
@@ -243,17 +273,34 @@ const DocWorkspacePropertiesTableBody = forwardRef<
   DocWorkspacePropertiesTableBodyProps
 >(
   (
-    { className, style, defaultOpen, onChange, onPropertyAdded, ...props },
+    {
+      className,
+      style,
+      defaultOpen,
+      onChange,
+      onPropertyAdded,
+      onPropertyInfoChange,
+      ...props
+    },
     ref
   ) => {
     const t = useI18n();
     const docsService = useService(DocsService);
     const workbenchService = useService(WorkbenchService);
     const viewService = useServiceOptional(ViewService);
+    const docService = useService(DocService);
+    const guardService = useService(GuardService);
     const properties = useLiveData(docsService.propertyList.sortedProperties$);
     const [addMoreCollapsed, setAddMoreCollapsed] = useState(true);
 
     const [newPropertyId, setNewPropertyId] = useState<string | null>(null);
+
+    const canEditProperty = useLiveData(
+      guardService.can$('Doc_Update', docService.doc.id)
+    );
+    const canEditPropertyInfo = useLiveData(
+      guardService.can$('Workspace_Properties_Update')
+    );
 
     const handlePropertyAdded = useCallback(
       (property: DocCustomPropertyInfo) => {
@@ -306,31 +353,48 @@ const DocWorkspacePropertiesTableBody = forwardRef<
               propertyInfo={property}
               defaultOpenEditMenu={newPropertyId === property.id}
               onChange={value => onChange?.(property, value)}
+              readonly={!canEditProperty}
+              propertyInfoReadonly={!canEditPropertyInfo}
+              onPropertyInfoChange={(...args) =>
+                onPropertyInfoChange?.(property, ...args)
+              }
             />
           ))}
           <div className={styles.actionContainer}>
-            <Menu
-              items={
-                <CreatePropertyMenuItems
-                  at="after"
-                  onCreated={handlePropertyAdded}
-                />
-              }
-              contentOptions={{
-                onClick(e) {
-                  e.stopPropagation();
-                },
-              }}
-            >
+            {!canEditPropertyInfo ? (
               <Button
                 variant="plain"
                 prefix={<PlusIcon />}
                 className={styles.propertyActionButton}
                 data-testid="add-property-button"
+                disabled={!canEditPropertyInfo}
               >
                 {t['com.affine.page-properties.add-property']()}
               </Button>
-            </Menu>
+            ) : (
+              <Menu
+                items={
+                  <CreatePropertyMenuItems
+                    at="after"
+                    onCreated={handlePropertyAdded}
+                  />
+                }
+                contentOptions={{
+                  onClick(e) {
+                    e.stopPropagation();
+                  },
+                }}
+              >
+                <Button
+                  variant="plain"
+                  prefix={<PlusIcon />}
+                  className={styles.propertyActionButton}
+                  data-testid="add-property-button"
+                >
+                  {t['com.affine.page-properties.add-property']()}
+                </Button>
+              </Menu>
+            )}
             {viewService ? (
               <Button
                 variant="plain"
@@ -359,10 +423,22 @@ const DocPropertiesTableInner = ({
   defaultOpenProperty,
   onPropertyAdded,
   onPropertyChange,
+  onPropertyInfoChange,
   onDatabasePropertyChange,
   className,
 }: DocPropertiesTableProps) => {
   const [expanded, setExpanded] = useState(!!defaultOpenProperty);
+  const defaultOpen = useMemo(() => {
+    return defaultOpenProperty?.type === 'database'
+      ? [
+          {
+            databaseBlockId: defaultOpenProperty.databaseId,
+            rowId: defaultOpenProperty.databaseRowId,
+            docId: defaultOpenProperty.docId,
+          },
+        ]
+      : [];
+  }, [defaultOpenProperty]);
   return (
     <div className={clsx(styles.root, className)}>
       <Collapsible.Root open={expanded} onOpenChange={setExpanded}>
@@ -378,21 +454,12 @@ const DocPropertiesTableInner = ({
             }
             onPropertyAdded={onPropertyAdded}
             onChange={onPropertyChange}
+            onPropertyInfoChange={onPropertyInfoChange}
           />
           <div className={styles.tableHeaderDivider} />
           <DocDatabaseBacklinkInfo
             onChange={onDatabasePropertyChange}
-            defaultOpen={
-              defaultOpenProperty?.type === 'database'
-                ? [
-                    {
-                      databaseBlockId: defaultOpenProperty.databaseId,
-                      rowId: defaultOpenProperty.databaseRowId,
-                      docId: defaultOpenProperty.docId,
-                    },
-                  ]
-                : []
-            }
+            defaultOpen={defaultOpen}
           />
         </Collapsible.Content>
       </Collapsible.Root>

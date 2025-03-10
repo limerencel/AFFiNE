@@ -4,7 +4,11 @@ import { disableNativeDragPreview } from '@atlaskit/pragmatic-drag-and-drop/elem
 import { pointerOutsideOfPreview } from '@atlaskit/pragmatic-drag-and-drop/element/pointer-outside-of-preview';
 import { preserveOffsetOnSource } from '@atlaskit/pragmatic-drag-and-drop/element/preserve-offset-on-source';
 import { setCustomNativeDragPreview } from '@atlaskit/pragmatic-drag-and-drop/element/set-custom-native-drag-preview';
-import type { DropTargetRecord } from '@atlaskit/pragmatic-drag-and-drop/types';
+import type {
+  BaseEventPayload,
+  DropTargetRecord,
+  ElementDragType,
+} from '@atlaskit/pragmatic-drag-and-drop/types';
 import { useContext, useEffect, useMemo, useRef, useState } from 'react';
 import ReactDOM, { flushSync } from 'react-dom';
 
@@ -20,6 +24,10 @@ import {
 export interface DraggableOptions<D extends DNDData = DNDData> {
   data?: DraggableGet<D['draggable']>;
   toExternalData?: toExternalData<D>;
+  onDragStart?: (data: BaseEventPayload<ElementDragType>) => void;
+  onDrag?: (data: BaseEventPayload<ElementDragType>) => void;
+  onDrop?: (data: BaseEventPayload<ElementDragType>) => void;
+  onDropTargetChange?: (data: BaseEventPayload<ElementDragType>) => void;
   canDrag?: DraggableGet<boolean>;
   disableDragPreview?: boolean;
   dragPreviewPosition?: DraggableDragPreviewPosition;
@@ -63,7 +71,6 @@ export const useDraggable = <D extends DNDData = DNDData>(
 
   const context = useContext(DNDContext);
 
-  // eslint-disable-next-line react-hooks/exhaustive-deps
   const options = useMemo(() => {
     const opts = getOptions();
 
@@ -80,9 +87,15 @@ export const useDraggable = <D extends DNDData = DNDData>(
   }, [...deps, context.toExternalData]);
 
   useEffect(() => {
-    if (!dragRef.current) {
+    if (
+      !dragRef.current ||
+      (typeof options.canDrag === 'boolean' && !options.canDrag)
+    ) {
       return;
     }
+
+    const element = dragRef.current;
+    const dragHandle = dragHandleRef.current;
 
     const windowEvent = {
       dragleave: () => {
@@ -97,11 +110,11 @@ export const useDraggable = <D extends DNDData = DNDData>(
       },
     };
 
-    dragRef.current.dataset.affineDraggable = 'true';
+    element.dataset.affineDraggable = 'true';
 
     const cleanupDraggable = draggable({
-      element: dragRef.current,
-      dragHandle: dragHandleRef.current ?? undefined,
+      element,
+      dragHandle: dragHandle ?? undefined,
       canDrag: draggableGet(options.canDrag),
       getInitialData: draggableGet(options.data),
       getInitialDataForExternal: draggableGet(options.toExternalData),
@@ -123,11 +136,12 @@ export const useDraggable = <D extends DNDData = DNDData>(
         if (enableDropTarget.current) {
           setDropTarget([]);
         }
-        if (dragRef.current) {
-          dragRef.current.dataset['dragging'] = 'true';
+        if (element) {
+          element.dataset['dragging'] = 'true';
         }
+        options.onDragStart?.(args);
       },
-      onDrop: () => {
+      onDrop: args => {
         if (enableDragging.current) {
           setDragging(false);
         }
@@ -145,9 +159,10 @@ export const useDraggable = <D extends DNDData = DNDData>(
         if (enableDropTarget.current) {
           setDropTarget([]);
         }
-        if (dragRef.current) {
-          delete dragRef.current.dataset['dragging'];
+        if (element) {
+          delete element.dataset['dragging'];
         }
+        options.onDrop?.(args);
       },
       onDrag: args => {
         if (enableDraggingPosition.current) {
@@ -163,11 +178,13 @@ export const useDraggable = <D extends DNDData = DNDData>(
             outWindow: prev.outWindow,
           }));
         }
+        options.onDrag?.(args);
       },
       onDropTargetChange(args) {
         if (enableDropTarget.current) {
           setDropTarget(args.location.current.dropTargets);
         }
+        options.onDropTargetChange?.(args);
       },
       onGenerateDragPreview({ nativeSetDragImage, source, location }) {
         if (options.disableDragPreview) {

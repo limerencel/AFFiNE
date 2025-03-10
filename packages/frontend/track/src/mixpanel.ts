@@ -1,4 +1,3 @@
-// eslint-disable-next-line @typescript-eslint/no-unused-vars
 import { DebugLogger } from '@affine/debug';
 import type { OverridedMixpanel } from 'mixpanel-browser';
 import mixpanelBrowser from 'mixpanel-browser';
@@ -37,6 +36,7 @@ function createMixpanel() {
         editorVersion: BUILD_CONFIG.editorVersion,
         isDesktop: BUILD_CONFIG.isElectron,
         isSelfHosted: environment.isSelfHosted,
+        distribution: BUILD_CONFIG.distribution,
       });
     },
     reset() {
@@ -94,7 +94,6 @@ function createMixpanel() {
 }
 
 export const mixpanel = createMixpanel();
-mixpanel.init();
 
 function createProxyHandler() {
   const handler = {

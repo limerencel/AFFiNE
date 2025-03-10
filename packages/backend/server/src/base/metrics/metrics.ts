@@ -1,25 +1,28 @@
 import {
-  Attributes,
-  Counter,
+  Gauge,
   Histogram,
   Meter,
   MetricOptions,
+  UpDownCounter,
 } from '@opentelemetry/api';
 
 import { getMeter } from './opentelemetry';
 
 type MetricType = 'counter' | 'gauge' | 'histogram';
 type Metric<T extends MetricType> = T extends 'counter'
-  ? Counter
+  ? UpDownCounter
   : T extends 'gauge'
-    ? Histogram
+    ? Gauge
     : T extends 'histogram'
       ? Histogram
       : never;
 
 export type ScopedMetrics = {
-  [T in MetricType]: (name: string, opts?: MetricOptions) => Metric<T>;
+  counter: (name: string, opts?: MetricOptions) => UpDownCounter;
+  gauge: (name: string, opts?: MetricOptions) => Gauge;
+  histogram: (name: string, opts?: MetricOptions) => Histogram;
 };
+
 type MetricCreators = {
   [T in MetricType]: (
     meter: Meter,
@@ -37,27 +40,16 @@ export type KnownMetricScopes =
   | 'doc'
   | 'sse'
   | 'mail'
-  | 'ai';
+  | 'ai'
+  | 'event'
+  | 'queue';
 
 const metricCreators: MetricCreators = {
   counter(meter: Meter, name: string, opts?: MetricOptions) {
     return meter.createCounter(name, opts);
   },
   gauge(meter: Meter, name: string, opts?: MetricOptions) {
-    let value: any;
-    let attrs: Attributes | undefined;
-    const ob$ = meter.createObservableGauge(name, opts);
-
-    ob$.addCallback(result => {
-      result.observe(value, attrs);
-    });
-
-    return {
-      record: (newValue, newAttrs) => {
-        value = newValue;
-        attrs = newAttrs;
-      },
-    } satisfies Histogram;
+    return meter.createGauge(name, opts);
   },
   histogram(meter: Meter, name: string, opts?: MetricOptions) {
     return meter.createHistogram(name, opts);

@@ -1,22 +1,21 @@
+import type { AffineEditorContainer } from '@affine/core/blocksuite/block-suite-editor';
 import type { DefaultOpenProperty } from '@affine/core/components/doc-properties';
-import {
-  type DocMode,
-  EdgelessRootService,
-  type ReferenceParams,
-} from '@blocksuite/affine/blocks';
-import type {
-  AffineEditorContainer,
-  DocTitle,
-} from '@blocksuite/affine/presets';
+import { GfxControllerIdentifier } from '@blocksuite/affine/block-std/gfx';
+import type { DocTitle } from '@blocksuite/affine/fragments/doc-title';
+import type { DocMode, ReferenceParams } from '@blocksuite/affine/model';
+import { HighlightSelection } from '@blocksuite/affine/shared/selection';
+import { FeatureFlagService as BSFeatureFlagService } from '@blocksuite/affine/shared/services';
 import type { InlineEditor } from '@blocksuite/inline';
 import { effect } from '@preact/signals-core';
-import type { DocService, WorkspaceService } from '@toeverything/infra';
 import { Entity, LiveData } from '@toeverything/infra';
 import { defaults, isEqual, omit } from 'lodash-es';
 import { skip } from 'rxjs';
 
+import type { DocService } from '../../doc';
+import { AFFINE_FLAGS, type FeatureFlagService } from '../../feature-flag';
 import { paramsParseOptions, preprocessParams } from '../../navigation/utils';
 import type { WorkbenchView } from '../../workbench';
+import type { WorkspaceService } from '../../workspace';
 import { EditorScope } from '../scopes/editor';
 import type { EditorSelector } from '../types';
 
@@ -69,13 +68,11 @@ export class Editor extends Entity {
   isPresenting$ = new LiveData<boolean>(false);
 
   togglePresentation() {
-    const edgelessRootService =
-      this.editorContainer$.value?.host?.std.getService(
-        'affine:page'
-      ) as EdgelessRootService;
-    if (!edgelessRootService) return;
-
-    edgelessRootService.gfx.tool.setTool({
+    const gfx = this.editorContainer$.value?.host?.std.get(
+      GfxControllerIdentifier
+    );
+    if (!gfx) return;
+    gfx.tool.setTool({
       type: !this.isPresenting$.value ? 'frameNavigator' : 'default',
     });
   }
@@ -117,7 +114,6 @@ export class Editor extends Entity {
 
     const stablePrimaryMode = this.doc.getPrimaryMode();
 
-    // eslint-disable-next-line rxjs/finnish
     const viewParams$ = view
       .queryString$<ReferenceParams & { refreshKey?: string }>(
         paramsParseOptions
@@ -192,10 +188,12 @@ export class Editor extends Entity {
     if (this.editorContainer$.value) {
       throw new Error('already bound');
     }
+
+    this._setupBlocksuiteEditorFlags(editorContainer);
     this.editorContainer$.next(editorContainer);
     const unsubs: (() => void)[] = [];
 
-    const rootService = editorContainer.host?.std.getService('affine:page');
+    const gfx = editorContainer.host?.std.get(GfxControllerIdentifier);
 
     // ----- Scroll Position and Selection -----
     // if we have default scroll position, we should restore it
@@ -204,9 +202,9 @@ export class Editor extends Entity {
     } else if (
       this.mode$.value === 'edgeless' &&
       this.scrollPosition.edgeless &&
-      rootService instanceof EdgelessRootService
+      gfx
     ) {
-      rootService.viewport.setViewport(this.scrollPosition.edgeless.zoom, [
+      gfx.viewport.setViewport(this.scrollPosition.edgeless.zoom, [
         this.scrollPosition.edgeless.centerX,
         this.scrollPosition.edgeless.centerY,
       ]);
@@ -234,7 +232,7 @@ export class Editor extends Entity {
 
         if (mode === this.mode$.value) {
           selection?.setGroup('scene', [
-            selection?.create('highlight', {
+            selection?.create(HighlightSelection, {
               mode,
               [key]: [id],
             }),
@@ -248,14 +246,11 @@ export class Editor extends Entity {
       if (this.mode$.value === 'page' && scrollViewport) {
         this.scrollPosition.page = scrollViewport.scrollTop;
         this.workbenchView?.setScrollPosition(scrollViewport.scrollTop);
-      } else if (
-        this.mode$.value === 'edgeless' &&
-        rootService instanceof EdgelessRootService
-      ) {
+      } else if (this.mode$.value === 'edgeless' && gfx) {
         const pos = {
-          centerX: rootService.viewport.centerX,
-          centerY: rootService.viewport.centerY,
-          zoom: rootService.viewport.zoom,
+          centerX: gfx.viewport.centerX,
+          centerY: gfx.viewport.centerY,
+          zoom: gfx.viewport.zoom,
         };
         this.scrollPosition.edgeless = pos;
         this.workbenchView?.setScrollPosition(pos);
@@ -265,10 +260,8 @@ export class Editor extends Entity {
     unsubs.push(() => {
       scrollViewport?.removeEventListener('scroll', saveScrollPosition);
     });
-    if (rootService instanceof EdgelessRootService) {
-      unsubs.push(
-        rootService.viewport.viewportUpdated.on(saveScrollPosition).dispose
-      );
+    if (gfx) {
+      unsubs.push(gfx.viewport.viewportUpdated.on(saveScrollPosition).dispose);
     }
 
     // update selection when focusAt$ changed
@@ -289,7 +282,7 @@ export class Editor extends Entity {
         const { id, key, mode } = anchor;
 
         selection.setGroup('scene', [
-          selection.create('highlight', {
+          selection.create(HighlightSelection, {
             mode,
             [key]: [id],
           }),
@@ -324,9 +317,24 @@ export class Editor extends Entity {
     };
   }
 
+  private _setupBlocksuiteEditorFlags(editorContainer: AffineEditorContainer) {
+    const affineFeatureFlagService = this.featureFlagService;
+    const bsFeatureFlagService = editorContainer.doc.get(BSFeatureFlagService);
+    Object.entries(AFFINE_FLAGS).forEach(([key, flag]) => {
+      if (flag.category === 'blocksuite') {
+        const value =
+          affineFeatureFlagService.flags[key as keyof AFFINE_FLAGS].value;
+        if (value !== undefined) {
+          bsFeatureFlagService.setFlag(flag.bsFlag, value);
+        }
+      }
+    });
+  }
+
   constructor(
     private readonly docService: DocService,
-    private readonly workspaceService: WorkspaceService
+    private readonly workspaceService: WorkspaceService,
+    private readonly featureFlagService: FeatureFlagService
   ) {
     super();
   }

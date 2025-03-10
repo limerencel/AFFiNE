@@ -1,27 +1,32 @@
 import { toURLSearchParams } from '@affine/core/modules/navigation/utils';
 import { Unreachable } from '@affine/env/constant';
-import type { ReferenceParams } from '@blocksuite/affine/blocks';
+import type { ReferenceParams } from '@blocksuite/affine/model';
 import { Entity, LiveData } from '@toeverything/infra';
 import { type To } from 'history';
 import { omit } from 'lodash-es';
 import { nanoid } from 'nanoid';
 
+import type { GlobalState } from '../../storage';
 import type { WorkbenchNewTabHandler } from '../services/workbench-new-tab-handler';
 import type { WorkbenchDefaultState } from '../services/workbench-view-state';
 import { View } from './view';
 
 export type WorkbenchPosition = 'beside' | 'active' | 'head' | 'tail' | number;
 
-type WorkbenchOpenOptions = {
+export type WorkbenchOpenOptions = {
   at?: WorkbenchPosition | 'new-tab';
   replaceHistory?: boolean;
   show?: boolean; // only for new tab
 };
 
+const sidebarOpenKey = 'workbenchSidebarOpen';
+const sidebarWidthKey = 'workbenchSidebarWidth';
+
 export class Workbench extends Entity {
   constructor(
     private readonly defaultState: WorkbenchDefaultState,
-    private readonly newTabHandler: WorkbenchNewTabHandler
+    private readonly newTabHandler: WorkbenchNewTabHandler,
+    private readonly globalState: GlobalState
   ) {
     super();
   }
@@ -43,23 +48,46 @@ export class Workbench extends Entity {
   activeView$ = LiveData.computed(get => {
     const activeIndex = get(this.activeViewIndex$);
     const views = get(this.views$);
-    return views[activeIndex]; // todo: this could be null
+    // activeIndex could be out of bounds when reordering views
+    return views.at(activeIndex) || views[0];
   });
+
   location$ = LiveData.computed(get => {
     return get(get(this.activeView$).location$);
   });
-  sidebarOpen$ = new LiveData(false);
+  sidebarOpen$ = LiveData.from(
+    this.globalState.watch<boolean>(sidebarOpenKey),
+    false
+  );
+  setSidebarOpen(open: boolean) {
+    this.globalState.set(sidebarOpenKey, open);
+  }
+  sidebarWidth$ = LiveData.from(
+    this.globalState.watch<number>(sidebarWidthKey),
+    320
+  );
+  setSidebarWidth(width: number) {
+    this.globalState.set(sidebarWidthKey, width);
+  }
 
-  active(index: number) {
-    index = Math.max(0, Math.min(index, this.views$.value.length - 1));
-    this.activeViewIndex$.next(index);
+  active(index: number | View) {
+    if (typeof index === 'number') {
+      index = Math.max(0, Math.min(index, this.views$.value.length - 1));
+      this.activeViewIndex$.next(index);
+    } else {
+      this.activeViewIndex$.next(this.views$.value.indexOf(index));
+    }
   }
 
   updateBasename(basename: string) {
     this.basename$.next(basename);
   }
 
-  createView(at: WorkbenchPosition = 'beside', defaultLocation: To) {
+  createView(
+    at: WorkbenchPosition = 'beside',
+    defaultLocation: To,
+    active = true
+  ) {
     const view = this.framework.createEntity(View, {
       id: nanoid(),
       defaultLocation,
@@ -68,20 +96,22 @@ export class Workbench extends Entity {
     newViews.splice(this.indexAt(at), 0, view);
     this.views$.next(newViews);
     const index = newViews.indexOf(view);
-    this.active(index);
+    if (active) {
+      this.active(index);
+    }
     return index;
   }
 
   openSidebar() {
-    this.sidebarOpen$.next(true);
+    this.setSidebarOpen(true);
   }
 
   closeSidebar() {
-    this.sidebarOpen$.next(false);
+    this.setSidebarOpen(false);
   }
 
   toggleSidebar() {
-    this.sidebarOpen$.next(!this.sidebarOpen$.value);
+    this.setSidebarOpen(!this.sidebarOpen$.value);
   }
 
   open(to: To, option: WorkbenchOpenOptions = {}) {
@@ -93,7 +123,7 @@ export class Workbench extends Entity {
       const { at = 'active', replaceHistory = false } = option;
       let view = this.viewAt(at);
       if (!view) {
-        const newIndex = this.createView(at, to);
+        const newIndex = this.createView(at, to, option.show);
         view = this.viewAt(newIndex);
         if (!view) {
           throw new Unreachable();

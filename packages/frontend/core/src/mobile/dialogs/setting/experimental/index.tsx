@@ -1,13 +1,12 @@
 import { Switch } from '@affine/component';
-import { useI18n } from '@affine/i18n';
-import { ArrowRightSmallIcon } from '@blocksuite/icons/rc';
 import {
   AFFINE_FLAGS,
   FeatureFlagService,
   type Flag,
-  useLiveData,
-  useService,
-} from '@toeverything/infra';
+} from '@affine/core/modules/feature-flag';
+import { useI18n } from '@affine/i18n';
+import { ArrowRightSmallIcon } from '@blocksuite/icons/rc';
+import { useLiveData, useService } from '@toeverything/infra';
 import { useCallback, useState } from 'react';
 
 import { SettingGroup } from '../group';
@@ -47,6 +46,7 @@ const ExperimentalFeatureList = () => {
       {Object.keys(AFFINE_FLAGS).map(key => (
         <ExperimentalFeaturesItem
           key={key}
+          flagKey={key}
           flag={featureFlagService.flags[key as keyof AFFINE_FLAGS]}
         />
       ))}
@@ -54,7 +54,13 @@ const ExperimentalFeatureList = () => {
   );
 };
 
-const ExperimentalFeaturesItem = ({ flag }: { flag: Flag }) => {
+const ExperimentalFeaturesItem = ({
+  flag,
+  flagKey,
+}: {
+  flag: Flag;
+  flagKey: string;
+}) => {
   const t = useI18n();
   const value = useLiveData(flag.$);
 
@@ -73,7 +79,7 @@ const ExperimentalFeaturesItem = ({ flag }: { flag: Flag }) => {
     <li>
       <div className={styles.itemBlock}>
         {t[flag.displayName]()}
-        <Switch checked={value} onChange={onChange} />
+        <Switch data-testid={flagKey} checked={value} onChange={onChange} />
       </div>
       {flag.description ? (
         <div className={styles.itemDescription}>{t[flag.description]()}</div>

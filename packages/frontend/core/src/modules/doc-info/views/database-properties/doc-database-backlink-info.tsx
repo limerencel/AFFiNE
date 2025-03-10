@@ -5,15 +5,11 @@ import {
   PropertyName,
 } from '@affine/component';
 import { AffinePageReference } from '@affine/core/components/affine/reference-link';
+import { DocService } from '@affine/core/modules/doc';
 import { useI18n } from '@affine/i18n';
-import type { DatabaseBlockDataSource } from '@blocksuite/affine/blocks';
+import type { DatabaseBlockDataSource } from '@blocksuite/affine/blocks/database';
 import { DatabaseTableViewIcon, PageIcon } from '@blocksuite/icons/rc';
-import {
-  DocService,
-  LiveData,
-  useLiveData,
-  useService,
-} from '@toeverything/infra';
+import { LiveData, useLiveData, useService } from '@toeverything/infra';
 import { Fragment, useMemo } from 'react';
 import type { Observable } from 'rxjs';
 
@@ -166,7 +162,7 @@ const DatabaseBacklinkRow = ({
 };
 
 export const DocDatabaseBacklinkInfo = ({
-  defaultOpen = [],
+  defaultOpen,
   onChange,
 }: {
   defaultOpen?: {
@@ -202,12 +198,14 @@ export const DocDatabaseBacklinkInfo = ({
       {rows.map(({ docId, databaseBlockId, rowId, row$ }) => (
         <Fragment key={`${docId}-${rowId}`}>
           <DatabaseBacklinkRow
-            defaultOpen={defaultOpen?.some(
-              backlink =>
-                backlink.databaseBlockId === databaseBlockId &&
-                backlink.rowId === rowId &&
-                backlink.docId === docId
-            )}
+            defaultOpen={
+              defaultOpen?.some(
+                backlink =>
+                  backlink.databaseBlockId === databaseBlockId &&
+                  backlink.rowId === rowId &&
+                  backlink.docId === docId
+              ) ?? false
+            }
             row$={row$}
             onChange={onChange}
           />

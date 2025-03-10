@@ -4,9 +4,11 @@ import {
   MenuSeparator,
   useConfirmModal,
 } from '@affine/component';
+import type { DocCustomPropertyInfo } from '@affine/core/modules/db';
+import { DocsService } from '@affine/core/modules/doc';
 import { Trans, useI18n } from '@affine/i18n';
 import { DeleteIcon, InvisibleIcon, ViewIcon } from '@blocksuite/icons/rc';
-import { DocsService, useLiveData, useService } from '@toeverything/infra';
+import { useLiveData, useService } from '@toeverything/infra';
 import {
   type KeyboardEventHandler,
   type MouseEvent,
@@ -25,8 +27,15 @@ import * as styles from './edit-doc-property.css';
 
 export const EditDocPropertyMenuItems = ({
   propertyId,
+  onPropertyInfoChange,
+  readonly,
 }: {
   propertyId: string;
+  readonly?: boolean;
+  onPropertyInfoChange?: (
+    field: keyof DocCustomPropertyInfo,
+    value: string
+  ) => void;
 }) => {
   const t = useI18n();
   const docsService = useService(DocsService);
@@ -67,8 +76,9 @@ export const EditDocPropertyMenuItems = ({
       docsService.propertyList.updatePropertyInfo(propertyId, {
         name: e.currentTarget.value,
       });
+      onPropertyInfoChange?.('name', e.currentTarget.value);
     },
-    [docsService.propertyList, propertyId]
+    [docsService.propertyList, propertyId, onPropertyInfoChange]
   );
 
   const handleIconChange = useCallback(
@@ -76,8 +86,9 @@ export const EditDocPropertyMenuItems = ({
       docsService.propertyList.updatePropertyInfo(propertyId, {
         icon: iconName,
       });
+      onPropertyInfoChange?.('icon', iconName);
     },
-    [docsService.propertyList, propertyId]
+    [docsService.propertyList, propertyId, onPropertyInfoChange]
   );
 
   const handleNameChange = useCallback((e: string) => {
@@ -90,8 +101,9 @@ export const EditDocPropertyMenuItems = ({
       docsService.propertyList.updatePropertyInfo(propertyId, {
         show: 'always-show',
       });
+      onPropertyInfoChange?.('show', 'always-show');
     },
-    [docsService.propertyList, propertyId]
+    [docsService.propertyList, propertyId, onPropertyInfoChange]
   );
 
   const handleClickHideWhenEmpty = useCallback(
@@ -100,8 +112,9 @@ export const EditDocPropertyMenuItems = ({
       docsService.propertyList.updatePropertyInfo(propertyId, {
         show: 'hide-when-empty',
       });
+      onPropertyInfoChange?.('show', 'hide-when-empty');
     },
-    [docsService.propertyList, propertyId]
+    [docsService.propertyList, propertyId, onPropertyInfoChange]
   );
 
   const handleClickAlwaysHide = useCallback(
@@ -110,8 +123,9 @@ export const EditDocPropertyMenuItems = ({
       docsService.propertyList.updatePropertyInfo(propertyId, {
         show: 'always-hide',
       });
+      onPropertyInfoChange?.('show', 'always-hide');
     },
-    [docsService.propertyList, propertyId]
+    [docsService.propertyList, propertyId, onPropertyInfoChange]
   );
 
   if (!propertyInfo || !isSupportedDocPropertyType(propertyType)) {
@@ -130,9 +144,10 @@ export const EditDocPropertyMenuItems = ({
       >
         <DocPropertyIconSelector
           propertyInfo={propertyInfo}
+          readonly={readonly}
           onSelectedChange={handleIconChange}
         />
-        {typeInfo?.renameable === false ? (
+        {typeInfo?.renameable === false || readonly ? (
           <span className={styles.propertyName}>{name}</span>
         ) : (
           <Input
@@ -141,6 +156,8 @@ export const EditDocPropertyMenuItems = ({
             onChange={handleNameChange}
             placeholder={t['unnamed']()}
             onKeyDown={onKeyDown}
+            size="large"
+            style={{ borderRadius: 4, height: 30 }}
           />
         )}
       </div>
@@ -166,6 +183,7 @@ export const EditDocPropertyMenuItems = ({
           propertyInfo.show !== 'always-hide'
         }
         data-property-visibility="always-show"
+        disabled={readonly}
       >
         {t['com.affine.page-properties.property.always-show']()}
       </MenuItem>
@@ -174,6 +192,7 @@ export const EditDocPropertyMenuItems = ({
         onClick={handleClickHideWhenEmpty}
         selected={propertyInfo.show === 'hide-when-empty'}
         data-property-visibility="hide-when-empty"
+        disabled={readonly}
       >
         {t['com.affine.page-properties.property.hide-when-empty']()}
       </MenuItem>
@@ -182,6 +201,7 @@ export const EditDocPropertyMenuItems = ({
         onClick={handleClickAlwaysHide}
         selected={propertyInfo.show === 'always-hide'}
         data-property-visibility="always-hide"
+        disabled={readonly}
       >
         {t['com.affine.page-properties.property.always-hide']()}
       </MenuItem>
@@ -189,6 +209,7 @@ export const EditDocPropertyMenuItems = ({
       <MenuItem
         prefixIcon={<DeleteIcon />}
         type="danger"
+        disabled={readonly}
         onClick={() => {
           confirmModal.openConfirmModal({
             title:

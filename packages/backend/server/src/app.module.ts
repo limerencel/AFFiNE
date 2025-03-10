@@ -1,20 +1,33 @@
 import {
   DynamicModule,
+  ExecutionContext,
   ForwardReference,
   Logger,
   Module,
 } from '@nestjs/common';
 import { ScheduleModule } from '@nestjs/schedule';
+import { ClsPluginTransactional } from '@nestjs-cls/transactional';
+import { TransactionalAdapterPrisma } from '@nestjs-cls/transactional-adapter-prisma';
+import { PrismaClient } from '@prisma/client';
+import { Request, Response } from 'express';
 import { get } from 'lodash-es';
+import { ClsModule } from 'nestjs-cls';
 
 import { AppController } from './app.controller';
-import { getOptionalModuleMetadata } from './base';
+import {
+  getOptionalModuleMetadata,
+  getRequestIdFromHost,
+  getRequestIdFromRequest,
+  ScannerModule,
+} from './base';
 import { CacheModule } from './base/cache';
 import { AFFiNEConfig, ConfigModule, mergeConfigOverride } from './base/config';
 import { ErrorModule } from './base/error';
 import { EventModule } from './base/event';
 import { GqlModule } from './base/graphql';
 import { HelpersModule } from './base/helpers';
+import { JobModule } from './base/job';
+import { LoggerModule } from './base/logger';
 import { MailModule } from './base/mailer';
 import { MetricsModule } from './base/metrics';
 import { MutexModule } from './base/mutex';
@@ -28,20 +41,59 @@ import { AuthModule } from './core/auth';
 import { ADD_ENABLED_FEATURES, ServerConfigModule } from './core/config';
 import { DocStorageModule } from './core/doc';
 import { DocRendererModule } from './core/doc-renderer';
+import { DocServiceModule } from './core/doc-service';
 import { FeatureModule } from './core/features';
+import { NotificationModule } from './core/notification';
 import { PermissionModule } from './core/permission';
 import { QuotaModule } from './core/quota';
 import { SelfhostModule } from './core/selfhost';
 import { StorageModule } from './core/storage';
 import { SyncModule } from './core/sync';
 import { UserModule } from './core/user';
+import { VersionModule } from './core/version';
 import { WorkspaceModule } from './core/workspaces';
+import { ModelsModule } from './models';
 import { REGISTERED_PLUGINS } from './plugins';
+import { LicenseModule } from './plugins/license';
 import { ENABLED_PLUGINS } from './plugins/registry';
 
 export const FunctionalityModules = [
+  ClsModule.forRoot({
+    global: true,
+    // for http / graphql request
+    middleware: {
+      mount: true,
+      generateId: true,
+      idGenerator(req: Request) {
+        // make every request has a unique id to tracing
+        return getRequestIdFromRequest(req, 'http');
+      },
+      setup(cls, _req, res: Response) {
+        res.setHeader('X-Request-Id', cls.getId());
+      },
+    },
+    // for websocket connection
+    // https://papooch.github.io/nestjs-cls/considerations/compatibility#websockets
+    interceptor: {
+      mount: true,
+      generateId: true,
+      idGenerator(context: ExecutionContext) {
+        // make every request has a unique id to tracing
+        return getRequestIdFromHost(context);
+      },
+    },
+    plugins: [
+      // https://papooch.github.io/nestjs-cls/plugins/available-plugins/transactional/prisma-adapter
+      new ClsPluginTransactional({
+        adapter: new TransactionalAdapterPrisma({
+          prismaInjectionToken: PrismaClient,
+        }),
+      }),
+    ],
+  }),
   ConfigModule.forRoot(),
   RuntimeModule,
+  ScannerModule,
   EventModule,
   RedisModule,
   CacheModule,
@@ -53,6 +105,9 @@ export const FunctionalityModules = [
   StorageProviderModule,
   HelpersModule,
   ErrorModule,
+  LoggerModule,
+  WebSocketModule,
+  JobModule.forRoot(),
 ];
 
 function filterOptionalModule(
@@ -152,13 +207,19 @@ export function buildAppModule() {
   factor
     // basic
     .use(...FunctionalityModules)
-    .useIf(config => config.flavor.sync, WebSocketModule)
+    .use(ModelsModule)
+
+    // enable schedule module on graphql server and doc service
+    .useIf(
+      config => config.flavor.graphql || config.flavor.doc,
+      ScheduleModule.forRoot()
+    )
 
     // auth
     .use(UserModule, AuthModule, PermissionModule)
 
     // business modules
-    .use(FeatureModule, QuotaModule, DocStorageModule)
+    .use(FeatureModule, QuotaModule, DocStorageModule, NotificationModule)
 
     // sync server only
     .useIf(config => config.flavor.sync, SyncModule)
@@ -166,12 +227,16 @@ export function buildAppModule() {
     // graphql server only
     .useIf(
       config => config.flavor.graphql,
-      ScheduleModule.forRoot(),
+      VersionModule,
       GqlModule,
       StorageModule,
       ServerConfigModule,
-      WorkspaceModule
+      WorkspaceModule,
+      LicenseModule
     )
+
+    // doc service only
+    .useIf(config => config.flavor.doc, DocServiceModule)
 
     // self hosted server only
     .useIf(config => config.isSelfhosted, SelfhostModule)
@@ -181,7 +246,8 @@ export function buildAppModule() {
   ENABLED_PLUGINS.forEach(name => {
     const plugin = REGISTERED_PLUGINS.get(name);
     if (!plugin) {
-      throw new Error(`Unknown plugin ${name}`);
+      new Logger('AppBuilder').warn(`Unknown plugin ${name}`);
+      return;
     }
 
     factor.use(plugin);

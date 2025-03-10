@@ -1,5 +1,5 @@
 import { GlobalDialogService } from '@affine/core/modules/dialogs';
-import type { DocMode } from '@blocksuite/affine/blocks';
+import type { DocMode } from '@blocksuite/affine/model';
 import { useService } from '@toeverything/infra';
 import { useEffect } from 'react';
 import { useSearchParams } from 'react-router-dom';
@@ -16,11 +16,15 @@ export const Component = () => {
   const [searchParams] = useSearchParams();
   const { jumpToIndex } = useNavigateHelper();
   useEffect(() => {
-    globalDialogService.open('import-template', {
+    const id = globalDialogService.open('import-template', {
       templateName: searchParams.get('name') ?? '',
       templateMode: (searchParams.get('mode') as DocMode) ?? 'page',
       snapshotUrl: searchParams.get('snapshotUrl') ?? '',
     });
+
+    return () => {
+      globalDialogService.close(id);
+    };
   }, [globalDialogService, jumpToIndex, searchParams]);
   // no ui for this route, just open the dialog
   return null;

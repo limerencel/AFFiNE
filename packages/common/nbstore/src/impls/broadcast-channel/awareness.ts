@@ -1,9 +1,6 @@
 import { nanoid } from 'nanoid';
 
-import {
-  type AwarenessRecord,
-  AwarenessStorage,
-} from '../../storage/awareness';
+import { type AwarenessRecord, AwarenessStorageBase } from '../../storage';
 import { BroadcastChannelConnection } from './channel';
 
 type ChannelMessage =
@@ -19,24 +16,38 @@ type ChannelMessage =
       collectId: string;
     }
   | {
-      type: 'awareness-collect-fallback';
+      type: 'awareness-collect-feedback';
       docId: string;
       bin: Uint8Array;
       collectId: string;
     };
 
-export class BroadcastChannelAwarenessStorage extends AwarenessStorage {
+interface BroadcastChannelAwarenessStorageOptions {
+  id: string;
+}
+
+export class BroadcastChannelAwarenessStorage extends AwarenessStorageBase {
+  static readonly identifier = 'BroadcastChannelAwarenessStorage';
+
   override readonly storageType = 'awareness';
-  override readonly connection = new BroadcastChannelConnection(this.options);
+  override readonly connection = new BroadcastChannelConnection({
+    id: this.options.id,
+  });
   get channel() {
     return this.connection.inner;
+  }
+
+  constructor(
+    private readonly options: BroadcastChannelAwarenessStorageOptions
+  ) {
+    super();
   }
 
   private readonly subscriptions = new Map<
     string,
     Set<{
       onUpdate: (update: AwarenessRecord, origin?: string) => void;
-      onCollect: () => AwarenessRecord;
+      onCollect: () => Promise<AwarenessRecord | null>;
     }>
   >();
 
@@ -57,12 +68,20 @@ export class BroadcastChannelAwarenessStorage extends AwarenessStorage {
   override subscribeUpdate(
     id: string,
     onUpdate: (update: AwarenessRecord, origin?: string) => void,
-    onCollect: () => AwarenessRecord
+    onCollect: () => Promise<AwarenessRecord | null>
   ): () => void {
     const subscribers = this.subscriptions.get(id) ?? new Set();
     subscribers.forEach(subscriber => {
-      const fallback = subscriber.onCollect();
-      onUpdate(fallback);
+      subscriber
+        .onCollect()
+        .then(awareness => {
+          if (awareness) {
+            onUpdate(awareness);
+          }
+        })
+        .catch(error => {
+          console.error('error in on collect awareness', error);
+        });
     });
 
     const collectUniqueId = nanoid();
@@ -84,18 +103,23 @@ export class BroadcastChannelAwarenessStorage extends AwarenessStorage {
         message.data.type === 'awareness-collect' &&
         message.data.docId === id
       ) {
-        const fallback = onCollect();
-        if (fallback) {
-          this.channel.postMessage({
-            type: 'awareness-collect-fallback',
-            docId: message.data.docId,
-            bin: fallback.bin,
-            collectId: collectUniqueId,
-          } satisfies ChannelMessage);
-        }
+        onCollect()
+          .then(awareness => {
+            if (awareness) {
+              this.channel.postMessage({
+                type: 'awareness-collect-feedback',
+                docId: message.data.docId,
+                bin: awareness.bin,
+                collectId: collectUniqueId,
+              } satisfies ChannelMessage);
+            }
+          })
+          .catch(error => {
+            console.error('error in on collect awareness', error);
+          });
       }
       if (
-        message.data.type === 'awareness-collect-fallback' &&
+        message.data.type === 'awareness-collect-feedback' &&
         message.data.docId === id &&
         message.data.collectId === collectUniqueId
       ) {

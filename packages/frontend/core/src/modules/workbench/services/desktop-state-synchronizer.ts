@@ -1,6 +1,7 @@
 import { LiveData, Service } from '@toeverything/infra';
 
 import type { DesktopApiService } from '../../desktop-api';
+import type { PeekViewService } from '../../peek-view';
 import type { WorkbenchService } from '../../workbench';
 
 /**
@@ -9,7 +10,8 @@ import type { WorkbenchService } from '../../workbench';
 export class DesktopStateSynchronizer extends Service {
   constructor(
     private readonly workbenchService: WorkbenchService,
-    private readonly electronApi: DesktopApiService
+    private readonly electronApi: DesktopApiService,
+    private readonly peekViewService: PeekViewService
   ) {
     super();
     this.startSync();
@@ -28,12 +30,9 @@ export class DesktopStateSynchronizer extends Service {
         event.type === 'open-in-split-view' &&
         event.payload.tabId === appInfo?.viewId
       ) {
-        const to =
-          event.payload.view?.path ??
-          workbench.activeView$.value?.location$.value;
-
-        workbench.open(to, {
+        workbench.openAll({
           at: 'beside',
+          show: false,
         });
       }
 
@@ -53,6 +52,30 @@ export class DesktopStateSynchronizer extends Service {
       ) {
         workbench.active(event.payload.viewIndex);
       }
+    });
+
+    this.electronApi.events.ui.onCloseView(() => {
+      (async () => {
+        if (await this.electronApi.handler.ui.isActiveTab()) {
+          // close current view. stop if any one is successful
+          // 1. peek view
+          // 2. split view
+          // 3. tab
+          // 4. otherwise, hide the window
+          if (this.peekViewService.peekView.show$.value?.value) {
+            this.peekViewService.peekView.close();
+          } else if (workbench.views$.value.length > 1) {
+            workbench.close(workbench.activeView$.value);
+          } else {
+            const tabs = await this.electronApi.handler.ui.getTabsStatus();
+            if (tabs.length > 1) {
+              await this.electronApi.handler.ui.closeTab();
+            } else {
+              await this.electronApi.handler.ui.handleHideApp();
+            }
+          }
+        }
+      })().catch(console.error);
     });
 
     this.electronApi.events.ui.onToggleRightSidebar(tabId => {
